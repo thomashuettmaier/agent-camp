@@ -118,16 +118,26 @@ describe("integrated avatar costumes", () => {
   });
 
   /**
-   * Pins how existing (catalog) looks render: all 35 HD frames of seeded avatars in every
-   * catalog outfit, a costume and the hand-authored detailed look. Any pixel change fails here;
-   * update the hashes only for an intended change and list it below.
+   * Pins how existing (catalog) looks render: all 35 HD frames of the seeded avatars (main's
+   * pinned `anna` and `martin` = the jacket entries) in every catalog outfit, costumes included,
+   * and the hand-authored detailed look. Any pixel change fails here; update the hashes only for
+   * an intended change and list it below.
    *
    * Intended differences from main's 1× renderer (16×24) that these hashes accept:
-   *  - painted at 32×48 texels (same world size, CHAR_RES = 2): more detail, same layout
-   *  - same layers and colours as main: open agent jacket over a white tee, pullover hoodie
+   *  - painted at 32×48 texels (same world size, CHAR_RES = 2); classic hair and hats are main's
+   *    1× layers Scale2x-upscaled, faces, clothes, legs and shoes are redrawn at 2×
+   *  - same garments and base colours as main: open agent jacket over a white tee, pullover hoodie
    *    (drawstrings, kangaroo pocket, no zip), open plaid flannels over a navy tee, dusk tee
-   *  - same agent mark as main on non-agent outfits: chest badge (4×4) + patch across the
-   *    shoulders from behind (+ a dot at the front edge from the side)
+   *  - 2× shading from the look's ramps where main used flat Endesga colours: plaid threads blended
+   *    into the flannel, beanie knit, beard shadow, a silver glint on glasses and the tee's edge,
+   *    blush = skin mixed with main's pink on both cheeks, far trouser leg #303855 (main: ink),
+   *    loafers with a bark highlight and the far shoe in their shadow #181425 (main: cocoa)
+   *  - waist: the shirt ends at texel row 32 and trousers show from row 33 (world 16.5, main 18),
+   *    in the opening of an open jacket / flannel as well; the beard no longer overlaps the
+   *    torso's top row
+   *  - same agent mark as main on non-agent outfits: chest badge (4×4, the flannel's / tee's half
+   *    a world px from main's) + patch across the shoulders from behind (+ a dot at the front edge
+   *    from the side)
    *  - held items, bracelets and costume details are main's 1× art, doubled
    */
   test("all 35 HD frames of seeded catalog looks retain their pixel checksums", () => {
@@ -139,7 +149,7 @@ describe("integrated avatar costumes", () => {
     };
     const got: Record<string, number> = {};
     for (const seed of ["anna", "martin"])
-      for (const outfit of ["jacket", "hoodie", "flannel", "flannel-red", "tee", "robot"] as const)
+      for (const { id: outfit } of OUTFITS)
         got[`${seed}/${outfit}`] = sheetHash({ ...avatarFromSeed(seed), outfit });
     got.tracht = sheetHash(LOOK_FIXTURES.tracht);
     expect(got).toEqual(PINNED_SHEETS);
@@ -161,12 +171,22 @@ const PINNED_SHEETS: Record<string, number> = {
   "anna/flannel": 4119217969,
   "anna/flannel-red": 2633891033,
   "anna/tee": 2819735303,
+  "anna/cat": 1285367693,
   "anna/robot": 3586596483,
+  "anna/astronaut": 4234510569,
+  "anna/pirate": 1984409777,
+  "anna/vampire": 3141327073,
+  "anna/disco": 1247971807,
   "martin/jacket": 2462738828,
   "martin/hoodie": 10235228,
   "martin/flannel": 3321994145,
   "martin/flannel-red": 3280011012,
   "martin/tee": 2978690364,
+  "martin/cat": 1299502084,
   "martin/robot": 935167976,
+  "martin/astronaut": 826961384,
+  "martin/pirate": 913177510,
+  "martin/vampire": 1498393168,
+  "martin/disco": 682794590,
   tracht: 3733927909,
 };
