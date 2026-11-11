@@ -603,7 +603,14 @@ function drawOuterFront(c: Ctx, b: TorsoBox) {
  * missing and no vest is in the way, else on the wearer's left chest (viewer's right) — a 2×2
  * dot at the front edge from the side, and
  * from behind (how seated people are mostly seen) a wide patch across the shoulders.
+ * Painted after the costume details, as on main, so a costume never hides it.
  */
+export function drawAgentMark(c: Ctx, b: TorsoBox) {
+  if (c.view === "down") drawAgentBadge(c, b);
+  else if (c.view === "up") drawAgentPatch(c, b);
+  else drawAgentDot(c, b);
+}
+
 function drawAgentBadge(c: Ctx, b: TorsoBox) {
   if (!c.r.accent) return;
   const a = c.r.agentRamp;
@@ -634,7 +641,6 @@ export function drawTorsoFront(c: Ctx, b: TorsoBox) {
   drawSuspendersFront(c, b);
   drawVestFront(c, b);
   drawOuterFront(c, b);
-  drawAgentBadge(c, b);
 }
 
 // ---- back view --------------------------------------------------------------------------------
@@ -710,7 +716,6 @@ export function drawTorsoBack(c: Ctx, b: TorsoBox) {
   }
   if (L.shirt.collar === "turtleneck" && o.kind === "none")
     pc.rect(12, b.T - 2, 8, 2, L.shirt.ramp.base);
-  drawAgentPatch(c, b);
 }
 
 // ---- side view (facing left) ------------------------------------------------------------------
@@ -777,5 +782,4 @@ export function drawTorsoSide(c: Ctx, b: TorsoBox) {
   } else if (L.shirt.collar === "stand-up" || L.shirt.collar === "turtleneck") {
     pc.rect(c.tl + 1, b.T - 2, 7, 2, opt(L.shirt.collarColor, L.shirt.ramp.base));
   }
-  drawAgentDot(c, b);
 }

@@ -92,6 +92,21 @@ describe("HD character painter", () => {
     expect((back.get(p.main) ?? 0) + (back.get(p.light) ?? 0)).toBeGreaterThan(30);
     // not on the jacket itself
     expect(c.get(tracht.look!.outer.ramp.base)).toBeGreaterThan(20);
+    // from the side only the 2×2 dot at the front edge (no armband)
+    expect(colours(sheet, ANIM.idleLeft[0]!).get(p.main)).toBe(4);
+  });
+
+  test("costume details never cover the agent mark (painted after them, as on main)", () => {
+    const p = AGENT_PALETTES.claude;
+    for (const outfit of ["cat", "robot", "astronaut", "pirate", "vampire", "disco"] as const) {
+      const sheet = paintSheet(lookFor({ ...avatarFromSeed("anna"), outfit }, "claude", null));
+      const mark = (f: number) => {
+        const c = colours(sheet, f);
+        return (c.get(p.main) ?? 0) + (c.get(p.light) ?? 0);
+      };
+      expect([outfit, mark(0)]).toEqual([outfit, 16]); // 4×4 chest badge
+      expect([outfit, mark(ANIM.sitType[0]!)]).toEqual([outfit, 48]); // 12×4 back patch
+    }
   });
 
   test("catalog looks (agentColored) wear the agent palette on the jacket", () => {

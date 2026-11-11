@@ -352,7 +352,7 @@ export const CharacterLook = z.object({
     agentColored: z
       .boolean()
       .describe(
-        "true = draw this garment in the coding agent's colour (use when no outer-garment colour is stated); false = keep ramp and show the agent colour as an armband/badge",
+        "true = draw this garment in the coding agent's colour (use when no outer-garment colour is stated); false = keep ramp and show the agent colour as a chest badge and back patch",
       ),
     ramp: Ramp,
     pattern: Pattern,

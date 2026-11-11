@@ -13,7 +13,14 @@ import { drawHeadSkin } from "./head.ts";
 import { drawEarrings, drawHeadwear } from "./headwear.ts";
 import { drawLegsSeatedFront, drawLegsSide, drawLegsStanding, drawSeatBackHip } from "./legs.ts";
 import type { RenderLook } from "./renderLook.ts";
-import { drawTorsoBack, drawTorsoFront, drawTorsoSide, type TorsoBox, torsoBox } from "./torso.ts";
+import {
+  drawAgentMark,
+  drawTorsoBack,
+  drawTorsoFront,
+  drawTorsoSide,
+  type TorsoBox,
+  torsoBox,
+} from "./torso.ts";
 
 function makeCtx(pc: PixelCanvas, r: RenderLook, f: FrameSpec, after: (() => void)[]): Ctx {
   const L = r.look;
@@ -68,6 +75,7 @@ function paintFrame(pc: PixelCanvas, r: RenderLook, f: FrameSpec, after: (() => 
       drawLegsSide(c, b, f.phase);
       drawTorsoSide(c, b);
       drawCostumeTorso(c, b);
+      drawAgentMark(c, b);
       drawArmSide(c, b, f.phase);
       drawExtras(c, b, f.arms, f.phase);
       if (r.mug && f.phase === 0) drawMug(c, 9, b.T + 6);
@@ -75,6 +83,7 @@ function paintFrame(pc: PixelCanvas, r: RenderLook, f: FrameSpec, after: (() => 
       drawLegsStanding(c, b, false, f.phase);
       drawTorsoFront(c, b);
       drawCostumeTorso(c, b);
+      drawAgentMark(c, b);
       drawArmsFront(c, b, f.arms, f.phase);
       drawExtras(c, b, f.arms, f.phase);
       if (
@@ -89,6 +98,7 @@ function paintFrame(pc: PixelCanvas, r: RenderLook, f: FrameSpec, after: (() => 
       drawLegsStanding(c, b, true, f.phase);
       drawTorsoBack(c, b);
       drawCostumeTorso(c, b);
+      drawAgentMark(c, b);
       drawArmsBack(c, b, f.arms, f.phase);
       drawExtras(c, b, f.arms, f.phase);
     }
@@ -100,6 +110,7 @@ function paintFrame(pc: PixelCanvas, r: RenderLook, f: FrameSpec, after: (() => 
     drawSeatBackHip(c, b);
     drawTorsoBack(c, b);
     drawCostumeTorso(c, b);
+    drawAgentMark(c, b);
     drawArmsBack(c, b, f.arms, 0);
     drawExtras(c, b, f.arms, 0);
     drawHead(c, "up", c.dy);
@@ -109,6 +120,7 @@ function paintFrame(pc: PixelCanvas, r: RenderLook, f: FrameSpec, after: (() => 
   drawLegsSeatedFront(c, b);
   drawTorsoFront(c, b);
   drawCostumeTorso(c, b);
+  drawAgentMark(c, b);
   drawArmsFront(c, b, f.arms === "rest" ? "down" : f.arms, 0);
   drawExtras(c, b, f.arms === "rest" ? "down" : f.arms, 0);
   if (r.mug && f.arms === "rest") drawMug(c, c.tr - 1, b.T + 4);

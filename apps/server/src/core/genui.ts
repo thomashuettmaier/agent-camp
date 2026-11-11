@@ -226,7 +226,7 @@ export const SYSTEM_PROMPT = [
   '- When nothing fits exactly, use the closest enum value; use "none" for absent features.',
   "- outer.agentColored: true when the description states no colour for the outer garment or",
   "  there is no outer garment (the jacket is then drawn in the coding agent's colour); false",
-  "  when the outer garment's colour is described (the agent colour becomes an armband).",
+  "  when the outer garment's colour is described (the agent colour becomes a chest badge and back patch).",
   "- Unmentioned details: pick plausible, varied choices that suit the described style.",
   "",
   "The catalog fields are the low-resolution fallback; approximate the look with them:",

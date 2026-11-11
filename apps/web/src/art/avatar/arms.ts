@@ -231,12 +231,6 @@ export function drawArmSide(c: Ctx, b: TorsoBox, phase: number) {
   }
   c.pc.rect(x + ax * 4, T + 10, 4, 2, sk.base);
   c.pc.set(x + ax * 4 + 3, T + 11, sk.shadow);
-  if (c.r.accent) {
-    const a = c.r.agentRamp;
-    c.pc.hline(x, T + 4, 4, a.base);
-    c.pc.hline(x, T + 5, 3, a.base);
-    c.pc.set(x + 3, T + 5, a.shadow);
-  }
 }
 
 export function drawMug(c: Ctx, x: number, y: number) {
