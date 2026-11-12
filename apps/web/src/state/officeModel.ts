@@ -3,17 +3,25 @@
  * semantic changes the renderer animates. Pure (no DOM, no Pixi), clock injectable.
  *
  * Also owns stable seating: each person gets the lowest free pod, each session the
- * lowest free desk in that pod (desk >= DESKS_PER_POD means "no desk, roams").
+ * lowest free desk in that pod (desk >= DESKS_PER_POD means "no desk, roams"). When more
+ * sessions arrive at once than desks are free, working ones get the desks (deskRules.ts);
+ * the renderer later hands idle sessions' desks to working roamers via `moveDesk`.
  */
 import {
   type Activity,
   type AgentKind,
   type AvatarSpec,
   avatarFromSeed,
+  type GameStats,
+  type GameSummary,
+  type HelperSkin,
+  type InteractionKind,
+  type PartyState,
   type PersonView,
   type ServerToViewer,
   type SessionView,
 } from "@agent-office/protocol";
+import { seatingOrder } from "./deskRules.ts";
 
 export type PersonState = {
   personId: string;
@@ -21,6 +29,12 @@ export type PersonState = {
   avatar: AvatarSpec;
   joinedAt: number;
   pod: number;
+  /** Giphy id of the GIF over the person's head */
+  gif: string | undefined;
+  /** it's their birthday today (opt-in on their connector) */
+  birthday: boolean;
+  /** what their subagents look like (connector `helpers`) */
+  helpers: HelperSkin;
 };
 
 export type SessionState = {
@@ -36,6 +50,10 @@ export type SessionState = {
   activitySince: number;
   /** machine label from the connector, if it sent one */
   machine: string | undefined;
+  /** its connector stopped heartbeating (laptop asleep / offline) */
+  offline: boolean;
+  /** share of the context window in use (0..1), when the connector knows it */
+  context: number | undefined;
   /** most subagents seen at once for this session (since this viewer saw it) */
   peakSubagents: number;
   /** activity changes seen by this viewer (client clock), oldest first, pruned to ~1 h */
@@ -49,10 +67,16 @@ export type TimelineSegment = { activity: Activity; from: number; to: number };
 const ACTIVITY_LOG_MS = 60 * 60_000;
 
 export type ModelChange =
+  | { kind: "partyChanged" }
+  /** a turn-based game changed; `before` is what it was (absent for a new game) */
+  | { kind: "gameChanged"; game: GameSummary; before?: GameSummary }
   | { kind: "officeRenamed"; name: string }
   | { kind: "personAdded"; personId: string; instant: boolean }
   | { kind: "personRemoved"; personId: string; instant: boolean }
   | { kind: "avatarChanged"; personId: string }
+  | { kind: "gifChanged"; personId: string }
+  | { kind: "birthdayChanged"; personId: string; birthday: boolean }
+  | { kind: "helpersChanged"; personId: string; helpers: HelperSkin }
   | { kind: "sessionAdded"; personId: string; sessionId: string; instant: boolean }
   | { kind: "sessionRemoved"; personId: string; sessionId: string; instant: boolean }
   | {
@@ -68,6 +92,19 @@ export type ModelChange =
       sessionId: string;
       count: number;
       previous: number;
+    }
+  | { kind: "connectionChanged"; personId: string; sessionId: string; offline: boolean }
+  | { kind: "contextChanged"; personId: string; sessionId: string; context: number | undefined }
+  | {
+      kind: "interaction";
+      interaction: InteractionKind;
+      personId: string | undefined;
+      from: string | undefined;
+      text: string | undefined;
+      delivered: number | undefined;
+      catId: number | undefined;
+      /** feed / yarn / laser: the floor spot */
+      spot: { x: number; y: number } | undefined;
     };
 
 export type OfficeStats = {
@@ -90,6 +127,10 @@ function dayKey(ts: number): string {
 }
 
 export class OfficeModel {
+  party: PartyState = { events: [], scores: {} };
+  /** turn-based games: open ones and the latest results */
+  games: GameSummary[] = [];
+  gameStats: Record<string, GameStats> = {};
   officeName = "Agent Office";
   timezone: string | undefined;
   /** server clock minus local clock, from the last snapshot */
@@ -101,6 +142,10 @@ export class OfficeModel {
   private day = "";
   private startedIds = new Set<string>();
   hasSnapshot = false;
+  /** deployed version from the server */
+  version: string | undefined;
+  /** sessions running every 5 min over the last 40 min, from the server's history */
+  recentSessions: number[] = [];
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -155,7 +200,13 @@ export class OfficeModel {
 
   stats(): OfficeStats {
     this.rollDay();
-    const byAgent: Record<AgentKind, number> = { claude: 0, codex: 0, pi: 0, unknown: 0 };
+    const byAgent: Record<AgentKind, number> = {
+      claude: 0,
+      codex: 0,
+      pi: 0,
+      design: 0,
+      unknown: 0,
+    };
     let subagents = 0;
     for (const s of this.sessions.values()) {
       byAgent[s.agent]++;
@@ -177,6 +228,9 @@ export class OfficeModel {
     switch (msg.type) {
       case "office.snapshot": {
         const d = msg.data;
+        this.party = d.party ?? { events: [], scores: {} };
+        this.games = d.games?.games ?? [];
+        this.gameStats = d.games?.stats ?? {};
         this.timezone = d.timezone;
         this.clockSkew = d.serverTime - this.now();
         if (d.officeName && d.officeName !== this.officeName) {
@@ -189,6 +243,15 @@ export class OfficeModel {
         }
         for (const pv of d.people) this.upsertPerson(pv, true, out);
         this.hasSnapshot = true;
+        this.version = d.version;
+        if (d.today) {
+          // the server's history knows the whole day; a reload must not reset the whiteboard
+          this.rollDay();
+          this.started = Math.max(this.started, d.today.started);
+          for (const id of this.sessions.keys()) this.startedIds.add(id);
+          this.peak = Math.max(this.peak, d.today.peak);
+          this.recentSessions = [...d.today.recent];
+        }
         break;
       }
       case "person.joined":
@@ -252,11 +315,74 @@ export class OfficeModel {
         }
         break;
       }
+      case "session.connectionChanged": {
+        const s = this.sessions.get(msg.data.sessionId);
+        if (s) this.setOffline(s, msg.data.offline, out);
+        break;
+      }
+      case "person.birthdayChanged": {
+        const p = this.people.get(msg.data.personId);
+        if (p && p.birthday !== msg.data.birthday) {
+          p.birthday = msg.data.birthday;
+          out.push({ kind: "birthdayChanged", personId: p.personId, birthday: p.birthday });
+        }
+        break;
+      }
+      case "person.helpersChanged": {
+        const p = this.people.get(msg.data.personId);
+        if (p) this.setHelpers(p, msg.data.helpers, out);
+        break;
+      }
+      case "session.contextChanged": {
+        const s = this.sessions.get(msg.data.sessionId);
+        if (s) this.setContext(s, msg.data.context ?? undefined, out);
+        break;
+      }
+      case "message.sent":
+      case "message.deleted":
+        // Authored content is owned by MessageModel, never world/statistics state.
+        break;
+      case "interaction.happened": {
+        const d = msg.data;
+        out.push({
+          kind: "interaction",
+          interaction: d.kind,
+          personId: d.personId,
+          from: d.from,
+          text: d.text,
+          delivered: d.delivered,
+          catId: d.catId,
+          spot: d.x !== undefined && d.y !== undefined ? { x: d.x, y: d.y } : undefined,
+        });
+        break;
+      }
+      case "party.updated":
+        this.party = msg.data.party;
+        out.push({ kind: "partyChanged" });
+        break;
+      case "game.updated": {
+        const game = msg.data.game;
+        const at = this.games.findIndex((g) => g.id === game.id);
+        const before = at >= 0 ? this.games[at] : undefined;
+        if (at >= 0) this.games[at] = game;
+        else this.games.push(game);
+        if (msg.data.stats) this.gameStats = msg.data.stats;
+        out.push({ kind: "gameChanged", game, ...(before ? { before } : {}) });
+        break;
+      }
       case "avatar.updated": {
         const p = this.people.get(msg.data.personId);
         if (p) {
           p.avatar = msg.data.avatar;
           out.push({ kind: "avatarChanged", personId: p.personId });
+        }
+        break;
+      }
+      case "gif.updated": {
+        const p = this.people.get(msg.data.personId);
+        if (p && p.gif !== msg.data.gif) {
+          p.gif = msg.data.gif;
+          out.push({ kind: "gifChanged", personId: p.personId });
         }
         break;
       }
@@ -266,6 +392,18 @@ export class OfficeModel {
   }
 
   // ---- internals ------------------------------------------------------------------------
+  private setContext(s: SessionState, context: number | undefined, out: ModelChange[]) {
+    if (s.context === context) return;
+    s.context = context;
+    out.push({ kind: "contextChanged", personId: s.personId, sessionId: s.sessionId, context });
+  }
+
+  private setOffline(s: SessionState, offline: boolean, out: ModelChange[]) {
+    if (s.offline === offline) return;
+    s.offline = offline;
+    out.push({ kind: "connectionChanged", personId: s.personId, sessionId: s.sessionId, offline });
+  }
+
   private logActivity(s: SessionState) {
     const now = this.now();
     s.activityLog.push({ activity: s.activity, at: now });
@@ -308,11 +446,22 @@ export class OfficeModel {
     return i;
   }
 
+  moveDesk(sessionId: string, desk: number) {
+    const s = this.sessions.get(sessionId);
+    if (s) s.desk = desk;
+  }
+
   private freeDesk(personId: string): number {
     const used = new Set(this.sessionsOf(personId).map((s) => s.desk));
     let i = 0;
     while (used.has(i)) i++;
     return i;
+  }
+
+  private setHelpers(p: PersonState, helpers: HelperSkin, out: ModelChange[]) {
+    if (p.helpers === helpers) return;
+    p.helpers = helpers;
+    out.push({ kind: "helpersChanged", personId: p.personId, helpers });
   }
 
   private addPerson(pv: PersonView, instant: boolean, out: ModelChange[]) {
@@ -322,6 +471,9 @@ export class OfficeModel {
       avatar: pv.avatar,
       joinedAt: pv.joinedAt,
       pod: this.freePod(),
+      gif: pv.gif,
+      birthday: !!pv.birthday,
+      helpers: pv.helpers ?? "robots",
     });
     out.push({ kind: "personAdded", personId: pv.personId, instant });
   }
@@ -332,16 +484,35 @@ export class OfficeModel {
       this.addPerson(pv, instant, out);
     } else {
       existing.name = pv.name;
+      if (existing.birthday !== !!pv.birthday) {
+        existing.birthday = !!pv.birthday;
+        out.push({ kind: "birthdayChanged", personId: pv.personId, birthday: existing.birthday });
+      }
+      this.setHelpers(existing, pv.helpers ?? "robots", out);
       if (JSON.stringify(existing.avatar) !== JSON.stringify(pv.avatar)) {
         existing.avatar = pv.avatar;
         out.push({ kind: "avatarChanged", personId: pv.personId });
+      }
+      if (existing.gif !== pv.gif) {
+        existing.gif = pv.gif;
+        out.push({ kind: "gifChanged", personId: pv.personId });
       }
     }
     const keep = new Set(pv.sessions.map((s) => s.sessionId));
     for (const s of this.sessionsOf(pv.personId)) {
       if (!keep.has(s.sessionId)) this.removeSession(s.sessionId, instant, out);
     }
-    for (const s of pv.sessions) this.upsertSession(pv.personId, s, instant, out);
+    // known sessions keep their desks; new ones fill the free desks, working ones first
+    // when they don't all fit (otherwise long-idle sessions would hold the pod on a reload)
+    const known = pv.sessions.filter((s) => this.sessions.has(s.sessionId));
+    const fresh = pv.sessions.filter((s) => !this.sessions.has(s.sessionId));
+    const taken = this.sessionsOf(pv.personId).filter((s) => s.desk < DESKS_PER_POD).length;
+    const order = seatingOrder(
+      fresh,
+      DESKS_PER_POD - taken,
+      (s) => s.activity !== "idle" && !s.offline,
+    );
+    for (const s of [...known, ...order]) this.upsertSession(pv.personId, s, instant, out);
   }
 
   private upsertSession(personId: string, sv: SessionView, instant: boolean, out: ModelChange[]) {
@@ -358,6 +529,8 @@ export class OfficeModel {
         desk: this.freeDesk(personId),
         activitySince: this.now(),
         machine: sv.machine,
+        offline: !!sv.offline,
+        context: sv.context,
         peakSubagents: sv.subagents,
         activityLog: [{ activity: sv.activity, at: this.now() }],
       };
@@ -370,6 +543,8 @@ export class OfficeModel {
     s.agent = sv.agent;
     s.project = sv.project;
     s.machine = sv.machine;
+    this.setOffline(s, !!sv.offline, out);
+    this.setContext(s, sv.context, out);
     if (s.activity !== sv.activity) {
       const previous = s.activity;
       s.activity = sv.activity;

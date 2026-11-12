@@ -1,21 +1,36 @@
 /**
- * `agent-office <command>`: run | configure | status | logs | install-service | uninstall |
- * version | help.
+ * `agent-office <command>`: run | configure | gif | status | logs | install-service |
+ * uninstall | version | help.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { envelope, type MessageData, PresenceSnapshot } from "@agent-office/protocol";
+import {
+  envelope,
+  giphyPageUrl,
+  MAX_SELF_DESCRIPTION,
+  type MessageData,
+  PresenceSnapshot,
+  parseGiphyId,
+  SHORT_SELF_DESCRIPTION,
+} from "@agent-office/protocol";
 import {
   CONFIG_KEYS,
   type Config,
+  claudeAppSetting,
   loadConfig,
+  lookGeneratorSetting,
   machineName,
   newClientId,
   saveConfig,
+  validBirthday,
+  validHelpers,
 } from "./config.ts";
-import { Daemon, type StatusFile } from "./daemon.ts";
+import { Daemon, DESIGN_STATUS_TEXT, type StatusFile } from "./daemon.ts";
+import { DesignWatcher, systemFrontmost } from "./desktop.ts";
 import { Detector } from "./detect/index.ts";
 import { log } from "./log.ts";
+import { bunSpawn, describeGenerators, detectGenerators, LookGenerators } from "./lookgen.ts";
+import { Notifier } from "./notify.ts";
 import {
   agentDirs,
   configDir,
@@ -27,10 +42,11 @@ import {
   userHome,
 } from "./paths.ts";
 import { systemProcesses } from "./proc.ts";
+import { statusSnapshot } from "./status.ts";
 import { canSelfUpdate, DEFAULT_UPDATE_BASE, Updater } from "./update.ts";
 import { platformId, VERSION } from "./version.ts";
 
-const BOOL_FLAGS = new Set(["assume-processes", "once", "yes", "help", "y"]);
+const BOOL_FLAGS = new Set(["assume-processes", "once", "yes", "help", "y", "json"]);
 
 export type Args = { command: string; flags: Record<string, string | boolean>; rest: string[] };
 
@@ -76,19 +92,42 @@ Commands:
       --assume-processes  treat every agent as running (tests; also AGENT_OFFICE_ASSUME_PROCESSES=1)
       --once              print one presence.snapshot JSON to stdout and exit
   configure         write ~/.config/agent-office/config.toml
-      --server URL --password PW --name NAME --description TEXT
+      --server URL --password PW --name NAME
+      --description TEXT  how you look, a few words or a detailed paragraph (up to 8000 chars)
+      --description-file PATH|-  read the description from a file or stdin (wins over --description)
       --machine-name LABEL  (default: short hostname; "" resets to it)
+      --gif GIPHY-LINK|off  GIF over your head (see \`gif\`)
       --share-project-names true|false     --get KEY (print one value)
+      --notifications true|false   show waves/messages from the office (default true)
+      --look-generator off|auto|claude   opt-in: draw your look with your own Claude Code
+                           subscription when the office asks (default off; restart the
+                           service after changing)
+      --birthday MM-DD     opt-in: the office brings you a cake that day ("" removes it)
+      --helpers robots|cats   what your subagents look like in the office (default robots)
+      --claude-app design|off   opt-in (macOS): your Claude desktop app counts as Claude
+                           Design, one desk while it runs (default off)
+      --cowork true|false  opt-in: show Cowork sessions of the Claude desktop app
+  gif [GIPHY-LINK|off]
+                    show any GIF from giphy.com over your head (paste the page or media
+                    link, or the id); "off" removes it; no argument prints the current one.
+                    Restarts the background connector so the office updates right away.
   status            connection state and live sessions
+      --json            privacy-safe JSON health snapshot (schemaVersion: 1)
   logs              follow the daemon log
   install-service   register the launchd agent (macOS) so it runs at login
   uninstall [--yes] stop the service and remove binary, config and logs
   version           print the version
   help              this text
 
+Long look descriptions are easiest kept in a file:
+  agent-office configure --description-file ~/look.md
+then restart the service so the office redraws you:
+  launchctl kickstart -k gui/$(id -u)/${LAUNCHD_LABEL}
+
 Only status metadata is sent: agent kind, hashed session id, project folder name
-(disable with share_project_names = false), activity, subagent count, start time,
-and the machine label you chose (machine_name).`;
+(disable with share_project_names = false), activity, subagent count, context use %, start time,
+the machine label you chose (machine_name), your look description and the Giphy id of your
+head GIF (gif).`;
 
 export async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
@@ -100,9 +139,11 @@ export async function main(argv: string[]): Promise<number> {
     case "run":
       return cmdRun(args);
     case "configure":
-      return cmdConfigure(args);
+      return await cmdConfigure(args);
+    case "gif":
+      return cmdGif(args);
     case "status":
-      return cmdStatus();
+      return cmdStatus(args);
     case "logs":
       return cmdLogs();
     case "install-service":
@@ -124,6 +165,22 @@ export async function main(argv: string[]): Promise<number> {
 }
 
 // ---- run ----------------------------------------------------------------------------------
+/**
+ * Look description fields for connector.hello: every server accepts the 200-char head
+ * (`selfDescription`); newer servers use the full text (`lookDescription`, only when longer).
+ */
+export function helloDescription(
+  description: string | undefined,
+): Pick<MessageData<"connector.hello">, "selfDescription" | "lookDescription"> {
+  const d = description?.trim();
+  if (!d) return {};
+  const out: Pick<MessageData<"connector.hello">, "selfDescription" | "lookDescription"> = {
+    selfDescription: d.slice(0, SHORT_SELF_DESCRIPTION),
+  };
+  if (d.length > SHORT_SELF_DESCRIPTION) out.lookDescription = d.slice(0, MAX_SELF_DESCRIPTION);
+  return out;
+}
+
 async function cmdRun(args: Args): Promise<number> {
   const { flags } = args;
   const env = process.env;
@@ -135,6 +192,12 @@ async function cmdRun(args: Args): Promise<number> {
   const machine = machineName({
     machine_name: flagStr(flags, "machine-name") ?? config.machine_name,
   });
+  const gifFlag = flagStr(flags, "gif");
+  const gif = gifFlag !== undefined ? gifSetting(gifFlag) : config.gif;
+  if (gif === null) {
+    console.error(`--gif: not a Giphy link or id: ${gifFlag}`);
+    return 2;
+  }
   const home = flagStr(flags, "home");
   const assumeProcesses =
     flags["assume-processes"] === true || env.AGENT_OFFICE_ASSUME_PROCESSES === "1";
@@ -144,12 +207,16 @@ async function cmdRun(args: Args): Promise<number> {
   }
   const clientId = existed ? config.client_id : (env.AGENT_OFFICE_CLIENT_ID ?? newClientId());
 
+  // the person's Claude app is Claude Design: one desk while it runs, and no Cowork desks
+  const claudeDesign = config.claude_app === "design" && process.platform === "darwin";
   const detector = new Detector({
     dirs: agentDirs(env, home),
     clientId,
     shareProjectNames: config.share_project_names,
     processes: systemProcesses(),
     assumeProcesses,
+    cowork: config.cowork && !claudeDesign,
+    ...(claudeDesign ? { design: new DesignWatcher(systemFrontmost()) } : {}),
   });
 
   if (flags.once) {
@@ -172,6 +239,22 @@ async function cmdRun(args: Args): Promise<number> {
     return 1;
   }
 
+  // Draw the look with Claude Code on this person's own subscription, only if they opted in
+  // (look_generator, default off). Test runs on a fixture home (--home / AGENT_OFFICE_HOME)
+  // never touch the real CLIs unless asked to.
+  const testHome = !!home || !!env.AGENT_OFFICE_HOME;
+  const lookSetting =
+    lookGeneratorSetting(env.AGENT_OFFICE_LOOK_GENERATOR) ??
+    (testHome ? "off" : config.look_generator);
+  const lookTools = await detectGenerators(lookSetting, bunSpawn);
+  const looks = new LookGenerators({ tools: lookTools, log });
+  const looksLabel =
+    lookSetting === "off"
+      ? "off (opt in: agent-office configure --look-generator auto)"
+      : lookTools.size
+        ? describeGenerators(lookTools)
+        : `none found (look_generator = ${lookSetting})`;
+
   const hello = (): MessageData<"connector.hello"> => {
     const h: MessageData<"connector.hello"> = {
       name: name.slice(0, 40),
@@ -180,9 +263,17 @@ async function cmdRun(args: Args): Promise<number> {
       connectorVersion: VERSION,
       platform: platformId(),
     };
-    const d = description?.trim();
-    if (d) h.selfDescription = d.slice(0, 200);
+    Object.assign(h, helloDescription(description));
     if (machine) h.machine = machine;
+    // a stored id that no longer parses (hand-edited config) is simply not sent
+    if (gif === "") h.gif = "";
+    else if (gif) {
+      const id = parseGiphyId(gif);
+      if (id) h.gif = id;
+    }
+    if (config.birthday) h.birthday = config.birthday;
+    if (looks.available.length) h.lookGenerators = looks.available;
+    if (config.helpers === "cats") h.helpers = "cats";
     return h;
   };
 
@@ -197,6 +288,7 @@ async function cmdRun(args: Args): Promise<number> {
     log,
   });
 
+  const notifier = new Notifier({ enabled: config.notifications, log });
   const daemon = new Daemon({
     server,
     hello,
@@ -205,11 +297,15 @@ async function cmdRun(args: Args): Promise<number> {
     log,
     version: VERSION,
     statusFile: statusPath(),
+    onPoked: (p) => void notifier.show(p),
+    looks,
+    looksLabel,
   });
 
   log(
     `agent-office ${VERSION} (${platformId()}) starting; server ${daemon.client.url}; ` +
-      `self-update ${updater.enabled ? "on" : "off"}${assumeProcesses ? "; assuming processes" : ""}`,
+      `self-update ${updater.enabled ? "on" : "off"}; local looks ${looksLabel}` +
+      `${assumeProcesses ? "; assuming processes" : ""}`,
   );
   let stopping = false;
   const shutdown = (sig: string) => {
@@ -226,7 +322,17 @@ async function cmdRun(args: Args): Promise<number> {
 }
 
 // ---- configure ----------------------------------------------------------------------------
-function cmdConfigure(args: Args): number {
+/** `--description-file PATH|-`: the file's (or stdin's) text, or an error message. */
+async function readDescriptionFile(path: string): Promise<{ text: string } | { error: string }> {
+  try {
+    const text = path === "-" ? await Bun.stdin.text() : readFileSync(path, "utf8");
+    return { text };
+  } catch (e) {
+    return { error: `cannot read description file ${path}: ${(e as Error).message}` };
+  }
+}
+
+async function cmdConfigure(args: Args): Promise<number> {
   const { flags } = args;
   const path = configPath();
   const { config } = loadConfig(path);
@@ -253,8 +359,57 @@ function cmdConfigure(args: Args): number {
   set("name", "name");
   set("description", "self_description");
   set("machine-name", "machine_name");
+  const descFile = flagStr(flags, "description-file");
+  if (descFile !== undefined) {
+    const r = await readDescriptionFile(descFile);
+    if ("error" in r) {
+      console.error(r.error);
+      return 1;
+    }
+    const text = r.text.trim();
+    next.self_description = text === "" ? undefined : text;
+  }
   const share = flags["share-project-names"];
   if (share !== undefined) next.share_project_names = !(share === "false" || share === "0");
+  const bday = flagStr(flags, "birthday");
+  if (bday !== undefined) {
+    if (bday.trim() && !validBirthday(bday)) {
+      console.error("birthday must look like MM-DD, e.g. 03-14");
+      return 2;
+    }
+    next.birthday = validBirthday(bday);
+  }
+  const helpers = flagStr(flags, "helpers");
+  if (helpers !== undefined) {
+    const skin = helpers.trim() === "" ? "robots" : validHelpers(helpers);
+    if (!skin) {
+      console.error("helpers must be robots or cats");
+      return 2;
+    }
+    next.helpers = skin;
+  }
+  const notify = flags.notifications;
+  if (notify !== undefined) next.notifications = !(notify === "false" || notify === "0");
+  const lookGen = flagStr(flags, "look-generator");
+  if (lookGen !== undefined) {
+    const v = lookGeneratorSetting(lookGen);
+    if (!v) {
+      console.error("look-generator must be auto, claude or off");
+      return 2;
+    }
+    next.look_generator = v;
+  }
+  const claudeApp = flagStr(flags, "claude-app");
+  if (claudeApp !== undefined) {
+    const v = claudeAppSetting(claudeApp);
+    if (!v) {
+      console.error("claude-app must be design or off");
+      return 2;
+    }
+    next.claude_app = v;
+  }
+  const cowork = flags.cowork;
+  if (cowork !== undefined) next.cowork = !(cowork === "false" || cowork === "0");
   if (next.name && next.name.trim().length > 40) {
     console.error("name must be at most 40 characters");
     return 2;
@@ -263,15 +418,112 @@ function cmdConfigure(args: Args): number {
     console.error("machine name must be at most 40 characters");
     return 2;
   }
-  if (next.self_description && next.self_description.length > 200) {
-    next.self_description = next.self_description.slice(0, 200);
+  if (next.self_description && next.self_description.length > MAX_SELF_DESCRIPTION) {
+    console.error(
+      `note: description is ${next.self_description.length} characters; ` +
+        `keeping the first ${MAX_SELF_DESCRIPTION}`,
+    );
+    next.self_description = next.self_description.slice(0, MAX_SELF_DESCRIPTION);
+  }
+  const gifFlag = flagStr(flags, "gif");
+  if (gifFlag !== undefined) {
+    const gif = gifSetting(gifFlag);
+    if (gif === null) {
+      console.error(`not a Giphy link or id: ${gifFlag}`);
+      return 2;
+    }
+    next.gif = gif;
   }
   saveConfig(path, next);
   console.log(
     `saved ${path} (server: ${next.server ?? "-"}, name: ${next.name ?? "-"}, ` +
       `password: ${next.password ? "set" : "not set"})`,
   );
+  if (claudeApp !== undefined) {
+    console.log(
+      next.claude_app === "design"
+        ? `Your Claude app now counts as Claude Design. ${DESIGN_HELP}`
+        : `Claude app: off. Restart the connector to apply: ${RESTART_HINT}`,
+    );
+  }
+  if (cowork !== undefined && next.cowork) {
+    console.log(`Cowork sessions are on. Restart the connector to apply: ${RESTART_HINT}`);
+  }
+  if (lookGen !== undefined) {
+    // the office learns about the look generator from the hello: reconnect now, so the look
+    // studio can use it without a manual restart
+    if (await restartService())
+      console.log(
+        "connector restarted; in the look studio, confirm it's you with a new code to draw on this Mac",
+      );
+    else console.log(`restart the connector to apply it: ${RESTART_HINT}`);
+  }
   return 0;
+}
+
+const RESTART_HINT = `launchctl kickstart -k gui/$(id -u)/${LAUNCHD_LABEL}`;
+
+export const DESIGN_HELP = `Restart the connector to apply: ${RESTART_HINT}
+While the Claude app runs you have one Claude Design desk: thinking while the app is in
+front, idle after two minutes in the background. No permission is needed; the office only
+learns that the app runs and whether it is in front.`;
+
+// ---- gif ----------------------------------------------------------------------------------
+const GIF_OFF = new Set(["off", "none", "no", "clear", "remove", "-"]);
+
+/** Config value for what the user typed: a Giphy id, "" for off, null when unrecognized. */
+export function gifSetting(input: string): string | null {
+  const v = input.trim();
+  if (v === "" || GIF_OFF.has(v.toLowerCase())) return "";
+  return parseGiphyId(v);
+}
+
+async function cmdGif(args: Args): Promise<number> {
+  const path = configPath();
+  const { config, existed } = loadConfig(path);
+  const input = args.rest.length > 0 ? args.rest.join(" ") : flagStr(args.flags, "gif");
+  if (input === undefined) {
+    console.log(config.gif ? giphyPageUrl(config.gif) : "no GIF set");
+    return 0;
+  }
+  const gif = gifSetting(input);
+  if (gif === null) {
+    console.error(
+      `not a Giphy link or id: ${input}\n` +
+        "Open a GIF on https://giphy.com and copy its link, e.g.\n" +
+        "  agent-office gif https://giphy.com/gifs/cat-typing-JIX9t2j0ZTN9S",
+    );
+    return 2;
+  }
+  if (!existed) {
+    console.error("agent-office is not configured yet. Run the installer first.");
+    return 1;
+  }
+  if ((config.gif ?? "") === gif) {
+    // the office only takes a value this connector did not send before (DECISIONS F13)
+    console.log(
+      `${gif ? `GIF already set to ${giphyPageUrl(gif)}` : "GIF already off"} on this machine.\n` +
+        "If someone changed it on the office page since, change it there (click your nameplate)\n" +
+        "or pick a different GIF here.",
+    );
+    return 0;
+  }
+  saveConfig(path, { ...config, gif });
+  console.log(gif ? `GIF set: ${giphyPageUrl(gif)}` : "GIF removed");
+  if (await restartService()) console.log("connector restarted; the office updates in a moment");
+  else console.log("restart the connector (`agent-office run`) to apply it");
+  return 0;
+}
+
+/**
+ * Restart the launchd agent so a new hello goes out; false when it isn't installed. A custom
+ * AGENT_OFFICE_CONFIG_DIR is not the config the service reads, so it is left alone then.
+ */
+async function restartService(): Promise<boolean> {
+  if (process.platform !== "darwin" || process.env.AGENT_OFFICE_CONFIG_DIR) return false;
+  if (!existsSync(plistPath())) return false;
+  const r = await sh(["launchctl", "kickstart", "-k", `gui/${uid()}/${LAUNCHD_LABEL}`]);
+  return r.code === 0;
 }
 
 // ---- status -------------------------------------------------------------------------------
@@ -318,11 +570,23 @@ async function launchdState(): Promise<string | null> {
 export function formatSessions(sessions: StatusFile["sessions"], now = Date.now()): string[] {
   return sessions.map((s) => {
     const sub = s.subagents ? `${s.subagents} subagent${s.subagents === 1 ? "" : "s"}` : "";
-    return `    ${s.agent.padEnd(7)}${(s.project ?? "(hidden)").padEnd(22)}${s.activity.padEnd(10)}${sub.padEnd(14)}started ${ago(now - s.startedAt)}`;
+    return `    ${s.agent.padEnd(7)}${(s.project ?? (s.agent === "design" ? "Claude app" : "(hidden)")).padEnd(22)}${s.activity.padEnd(10)}${sub.padEnd(14)}started ${ago(now - s.startedAt)}`;
   });
 }
 
-async function cmdStatus(): Promise<number> {
+async function cmdStatus(args: Args): Promise<number> {
+  if (args.flags.json === true) {
+    let raw: string | null = null;
+    try {
+      raw = readFileSync(statusPath(), "utf8");
+    } catch {
+      // Status is best effort; never expose filesystem errors or config in JSON mode.
+    }
+    console.log(
+      JSON.stringify(statusSnapshot(raw, { connectorVersion: VERSION, now: Date.now(), pidAlive })),
+    );
+    return 0;
+  }
   const { config, existed } = loadConfig(configPath());
   const lines: string[] = [`agent-office ${VERSION} (${platformId()})`];
   lines.push(
@@ -352,9 +616,22 @@ async function cmdStatus(): Promise<number> {
           ? `  server    connected to ${status.server} as ${status.personId ?? status.name}`
           : `  server    not connected to ${status.server}${status.lastError ? ` (${status.lastError})` : ""}`,
       );
+      if (status.looks) lines.push(`  looks     ${status.looks}`);
       lines.push(`  sessions  ${status.sessions.length} live`);
       lines.push(...formatSessions(status.sessions, now));
     }
+  }
+  if (config.claude_app === "design") {
+    const fresh = status && now - status.updatedAt < 10_000 && pidAlive(status.pid);
+    lines.push(
+      `  design    ${
+        process.platform !== "darwin"
+          ? "on, but only macOS is supported"
+          : fresh && status?.designWindow
+            ? DESIGN_STATUS_TEXT[status.designWindow]
+            : `on (restart the connector to apply: ${RESTART_HINT})`
+      }`,
+    );
   }
   const ld = await launchdState();
   if (ld) lines.push(`  launchd   ${ld}`);
