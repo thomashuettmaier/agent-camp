@@ -79,6 +79,7 @@ import { Celebration } from "./ui/celebration.ts";
 import { GamesUi } from "./ui/gamesUi.ts";
 import { MessagesPanel, storedMessageRead } from "./ui/messages.ts";
 import { Minimap } from "./ui/minimap.ts";
+import { ridePreview } from "./ui/studio/ridePreview.ts";
 import { Cfo } from "./world/cfo.ts";
 import { CharacterManager, type MountInfo } from "./world/characters.ts";
 import { CatColony } from "./world/colony.ts";
@@ -885,6 +886,14 @@ async function boot() {
       ride.className = "look-canvas look-ride";
       ride.setAttribute("aria-label", "Vehicle preview");
       previews.push(ride);
+    }
+    // rideable animals (RA1): the rider on their animal, after the look itself
+    const riding = ridePreview(look);
+    if (riding) {
+      riding.className = "look-canvas look-mount";
+      riding.setAttribute("role", "img");
+      riding.setAttribute("aria-label", `Riding a ${look.look.accessories.mount?.kind}`);
+      previews.push(riding);
     }
     return previews;
   };

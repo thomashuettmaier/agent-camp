@@ -5,6 +5,7 @@
  *   withWardrobe  a look with every optional wardrobe section filled with its default
  *   *Of builders  a whole garment section from a kind + one colour
  *   OUTFIT_PRESETS / applyPreset  one-click outfits (clothing sections only)
+ *   MOUNT_COLORS  the natural colours of the rideable animals (RA1)
  *   randomLook    a random, valid look (the studio's dice)
  *
  * Pure and deterministic; no DOM.
@@ -41,6 +42,8 @@ import {
   LEGWEAR_KINDS,
   LOOK_VERSION,
   MASKS,
+  MOUNTS,
+  type MountKind,
   NECKLACES,
   OUTER_KINDS,
   OUTER_LENGTHS,
@@ -296,8 +299,28 @@ export function accessoriesOf(parts: PartSpec = {}): Accessories {
     // WD12: only written when given, so older presets stay byte-identical
     ...(parts.pet ? { pet: one("pet") } : {}),
     ...(parts.aura ? { aura: one("aura") } : {}),
+    // RA1: the same for the animal you ride
+    ...(parts.mount ? { mount: one("mount") } : {}),
   };
 }
+
+// ---- rideable animals (RA1) ---------------------------------------------------------------
+
+/**
+ * Natural colours of each rideable animal; the first is the one it starts in when picked
+ * (chestnut horse, green frog, grey-blue shark), the rest are what the dice picks from.
+ */
+export const MOUNT_COLORS: Record<Exclude<MountKind, "none">, readonly string[]> = {
+  // chestnut, bay, black, grey, palomino, white
+  horse: ["#8a4b2a", "#5a3a28", "#2b2638", "#8b9bb4", "#e0b46c", "#f4f4f2"],
+  // green, lime, dark pond green, poison-dart blue, red-eyed tree frog orange
+  frog: ["#3e8948", "#63c74d", "#265c42", "#0099db", "#f77622"],
+  // grey-blue, slate, light grey, great-white grey
+  shark: ["#5a6988", "#3a4466", "#8b9bb4", "#c0cbdc"],
+};
+/** The colour a rideable animal starts in when it is picked. */
+export const mountColor = (kind: string): string =>
+  MOUNT_COLORS[kind as keyof typeof MOUNT_COLORS]?.[0] ?? "#8a4b2a";
 
 // ---- defaults -----------------------------------------------------------------------------
 
@@ -1052,6 +1075,60 @@ export const OUTFIT_PRESETS: readonly OutfitPreset[] = [
       headwear: headwearOf("santa-hat", "#e43b44", SNOW),
     }),
   },
+  // ---- rideable animals (RA1): outfits that come with an animal to ride ----
+  {
+    id: "rodeo",
+    label: "Rodeo rider",
+    outfit: outfit({
+      shirt: shirtOf("shirt", "#4a6fa5", { neckwear: "bandana", neckwearColor: "#e43b44" }),
+      vest: vestOf("waistcoat", "#733e39", { buttons: buttons(0, "#733e39") }),
+      bottoms: bottomsOf("jeans", "#262b44", { belt: GOLD }),
+      shoes: shoesOf("cowboy-boots", "#5a3a28", { accent: GOLD }),
+      accessories: accessoriesOf({ gloves: ["short", "#c28569"], mount: ["horse", "#8a4b2a"] }),
+      headwear: headwearOf("cowboy-hat", "#ead4aa", "#5a3a28"),
+    }),
+  },
+  {
+    id: "frog-princess",
+    label: "Frog princess",
+    outfit: outfit({
+      shirt: shirtOf("blouse", "#f4f4f2", { sleeves: "short" }),
+      vest: vestOf("corset", "#3e8948", { piping: GOLD }),
+      bottoms: bottomsOf("gown", "#63c74d", { pattern: { kind: "sequins", a: GOLD, b: "none" } }),
+      shoes: shoesOf("ballet-flats", GOLD),
+      accessories: accessoriesOf({
+        gloves: ["long", SNOW],
+        necklace: ["pearls", SNOW],
+        mount: ["frog", "#3e8948"],
+      }),
+      headwear: headwearOf("tiara", GOLD, "#e43b44"),
+    }),
+  },
+  {
+    id: "shark-surfer",
+    label: "Shark surfer",
+    outfit: outfit({
+      bottoms: bottomsOf("shorts", "#0099db", {
+        pattern: { kind: "floral", a: "#fee761", b: "#f6757a" },
+      }),
+      shoes: BAREFOOT,
+      underwear: underwearOf("none", WHITE, "swim-trunks", "#0099db"),
+      accessories: accessoriesOf({ necklace: ["lei", "#f6757a"], mount: ["shark", "#5a6988"] }),
+    }),
+  },
+  {
+    id: "shark-pirate",
+    label: "Shark pirate",
+    outfit: outfit({
+      shirt: shirtOf("blouse", SNOW, { pattern: { kind: "stripes", a: "#262b44", b: "none" } }),
+      outer: outerOf("coat", "#262b44", { open: true, length: "thigh", piping: GOLD }),
+      bottoms: bottomsOf("trousers", "#3a2a2a", { hem: "frayed", belt: "#5a3a28" }),
+      shoes: shoesOf("boots", BLACK),
+      accessories: accessoriesOf({ mount: ["shark", "#3a4466"] }),
+      headwear: headwearOf("tricorn", BLACK, SNOW),
+      costume: "pirate",
+    }),
+  },
 ];
 
 /** Hats that belong to an outfit: switching outfits takes them off again. */
@@ -1059,7 +1136,10 @@ const OUTFIT_HATS = new Set(
   OUTFIT_PRESETS.map((p) => p.outfit.headwear?.style).filter((s) => s !== undefined),
 );
 
-/** The look wearing a preset outfit. Body, face and hair (and an ordinary hat) stay. */
+/**
+ * The look wearing a preset outfit. Body, face and hair (and an ordinary hat) stay, and so does
+ * the animal you ride (RA1), unless the outfit brings its own.
+ */
 export function applyPreset(look: CharacterLook, presetId: string): CharacterLook {
   const preset = OUTFIT_PRESETS.find((p) => p.id === presetId);
   if (!preset) return look;
@@ -1070,6 +1150,9 @@ export function applyPreset(look: CharacterLook, presetId: string): CharacterLoo
     : OUTFIT_HATS.has(look.headwear.style)
       ? { ...look.headwear, style: "none" as const }
       : look.headwear;
+  const accessories = structuredClone(o.accessories);
+  const ridden = look.accessories?.mount;
+  if (!accessories.mount && ridden) accessories.mount = structuredClone(ridden);
   return {
     ...look,
     shirt: structuredClone(o.shirt),
@@ -1080,7 +1163,7 @@ export function applyPreset(look: CharacterLook, presetId: string): CharacterLoo
     shoes: structuredClone(o.shoes),
     underwear: structuredClone(o.underwear),
     apron: structuredClone(o.apron),
-    accessories: structuredClone(o.accessories),
+    accessories,
     headwear,
     extras: {
       ...ex,
@@ -1286,6 +1369,15 @@ export function randomLook(seed: number): FullLook {
       // WD12: rare extras, like wings
       pet: [rare(r, PETS, 0.06), col()],
       aura: [rare(r, AURAS, 0.04), col()],
+      // RA1: now and then an animal to ride, in a natural colour. Drawn last, so every look
+      // before it is the same as without mounts; written only when there is one
+      ...mountOf(r),
     }),
   };
+}
+
+/** The dice's animal to ride (RA1): rare, in one of the animal's own colours. */
+function mountOf(r: () => number): { mount?: [MountKind, string] } {
+  const kind = rare(r, MOUNTS, 0.04);
+  return kind === "none" ? {} : { mount: [kind, pickOf(r, MOUNT_COLORS[kind])] };
 }

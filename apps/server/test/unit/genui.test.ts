@@ -151,6 +151,14 @@ describe("genui: schema", () => {
     ]);
   });
 
+  test("rideable animals (RA1): accessories.mount is a required horse / frog / shark enum", () => {
+    // biome-ignore lint/suspicious/noExplicitAny: walking a plain JSON schema
+    const acc = (AI_AVATAR_SCHEMA as any).properties.look.properties.accessories;
+    expect(acc.required).toContain("mount");
+    expect(acc.properties.mount.properties.kind.enum).toEqual(["none", "horse", "frog", "shark"]);
+    expect(JSON.stringify(acc.properties.mount)).toContain("rides");
+  });
+
   test("the hand-authored fixture fits the schema exactly", () => {
     expect(conforms(AI_AVATAR_SCHEMA, TRACHT)).toEqual([]);
     expect(conforms(AI_AVATAR_SCHEMA, { ...TRACHT, extra: 1 })).toEqual(["$.extra: extra"]);
@@ -215,6 +223,10 @@ describe("genui: anthropic", () => {
     // WD12: pets and auras are explained, so "a mermaid with a parrot" has somewhere to go
     expect(SYSTEM_PROMPT).toContain("accessories.pet");
     expect(SYSTEM_PROMPT).toContain("mermaid-tail");
+    // RA1: an animal to ride, only when asked for, and never as the vehicle
+    expect(SYSTEM_PROMPT).toContain("accessories.mount");
+    expect(SYSTEM_PROMPT).toContain("a cowboy on his horse");
+    expect(SYSTEM_PROMPT).toContain("never the vehicle");
     expect(lines.some((l) => l.includes("tokens in=4096 out=2048"))).toBe(true);
     expect(svc.callsToday()).toBe(1);
   });
@@ -288,6 +300,26 @@ describe("genui: anthropic", () => {
     expect(r.avatar.look?.shirt.ramp.base).toBe("#aabbcc");
     expect(r.avatar.look?.outer).toEqual(TRACHT.look.outer);
     expect(lines.some((l) => l.includes("repaired"))).toBe(true);
+  });
+
+  test("a look that rides (RA1) is stored with its animal; a bad animal drops only that", async () => {
+    const riding = (mount: unknown) => ({
+      ...TRACHT,
+      look: { ...TRACHT.look, accessories: { ...TRACHT.look.accessories, mount } },
+    });
+    const horse = { kind: "horse", color: "#8a4b2a" } as const;
+    const cases: [unknown, typeof horse | undefined][] = [
+      [horse, horse],
+      [{ kind: "unicorn", color: "#ffffff" }, undefined],
+    ];
+    for (const [mount, want] of cases) {
+      const { f } = mockFetch(() => anthropicOk(riding(mount)));
+      const svc = createAvatarService(anthropic(), new MemoryStore(), { fetch: f });
+      const r = await svc.resolve(job);
+      expect(r.source).toBe("ai");
+      expect(r.avatar.look?.accessories?.mount).toEqual(want);
+      expect(r.avatar.look?.outer).toEqual(TRACHT.look.outer);
+    }
   });
 
   test("unusable output keeps the previous look under a retry key", async () => {

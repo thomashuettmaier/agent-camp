@@ -1,0 +1,276 @@
+{
+  "hairStyle": "long",
+  "hairColor": "blonde",
+  "skinTone": "medium",
+  "glasses": "sunglasses",
+  "facialHair": "none",
+  "accessory": "none",
+  "deskProps": ["mug", "plant"],
+  "deskMess": 1,
+  "look": {
+    "v": 1,
+    "build": "average",
+    "skin": {
+      "base": "#e4a672",
+      "shadow": "#ab7d5c",
+      "light": "#e9b88e"
+    },
+    "face": {
+      "shape": "round",
+      "ears": "visible",
+      "eyes": "dot",
+      "eyeColor": "#2ce8f5",
+      "brows": "thin",
+      "expression": "grin",
+      "cheeks": "none",
+      "makeup": {
+        "lips": "none",
+        "eyeshadow": "none"
+      }
+    },
+    "hair": {
+      "cut": "long",
+      "ramp": {
+        "base": "#feae34",
+        "shadow": "#be8330",
+        "light": "#febe5d"
+      },
+      "sheen": true,
+      "tips": "none"
+    },
+    "facialHair": {
+      "style": "none",
+      "color": "#feae34"
+    },
+    "eyewear": {
+      "style": "aviator",
+      "frame": "#1f1b2a",
+      "frameAccent": "#3a1e0e",
+      "framePattern": "tortoiseshell",
+      "lens": "#b8c4e8",
+      "tint": "dark"
+    },
+    "headwear": {
+      "style": "none",
+      "ramp": {
+        "base": "#1f3d6b",
+        "shadow": "#1d3257",
+        "light": "#4c6489"
+      },
+      "accent": "#fee761",
+      "logo": "none"
+    },
+    "earrings": {
+      "style": "none",
+      "color": "#feae34"
+    },
+    "shirt": {
+      "kind": "none",
+      "ramp": {
+        "base": "#ffffff",
+        "shadow": "#bebdc2",
+        "light": "#ffffff"
+      },
+      "pattern": {
+        "kind": "none",
+        "a": "#ffffff",
+        "b": "none"
+      },
+      "collar": "none",
+      "collarColor": "none",
+      "neckwear": "none",
+      "neckwearColor": "#262b44",
+      "sleeves": "none",
+      "buttons": {
+        "count": 0,
+        "color": "#bab9be",
+        "rim": "none",
+        "size": "small",
+        "layout": "single"
+      },
+      "peeksAtWaist": false
+    },
+    "vest": {
+      "kind": "none",
+      "ramp": {
+        "base": "#ffffff",
+        "shadow": "#bebdc2",
+        "light": "#ffffff"
+      },
+      "pattern": {
+        "kind": "none",
+        "a": "#ffffff",
+        "b": "none"
+      },
+      "collar": "none",
+      "piping": "none",
+      "buttons": {
+        "count": 0,
+        "color": "#a3a1a8",
+        "rim": "none",
+        "size": "small",
+        "layout": "single"
+      }
+    },
+    "outer": {
+      "kind": "none",
+      "agentColored": false,
+      "ramp": {
+        "base": "#8b9bb4",
+        "shadow": "#6b758c",
+        "light": "#a2afc3"
+      },
+      "pattern": {
+        "kind": "none",
+        "a": "#8b9bb4",
+        "b": "none"
+      },
+      "open": true,
+      "length": "hip",
+      "collar": "none",
+      "collarColor": "none",
+      "collarPiping": "none",
+      "piping": "none",
+      "buttons": {
+        "count": 0,
+        "color": "#5d657b",
+        "rim": "none",
+        "size": "small",
+        "layout": "single"
+      },
+      "pockets": "none",
+      "pocketPiping": "none",
+      "yoke": false
+    },
+    "bottoms": {
+      "kind": "shorts",
+      "ramp": {
+        "base": "#0099db",
+        "shadow": "#0774a8",
+        "light": "#33ade2"
+      },
+      "pattern": {
+        "kind": "floral",
+        "a": "#fee761",
+        "b": "#f6757a"
+      },
+      "flap": false,
+      "embroidery": {
+        "motif": "none",
+        "color": "#0099db",
+        "stitching": "none"
+      },
+      "buttons": {
+        "count": 0,
+        "color": "#0099db",
+        "rim": "none",
+        "size": "small",
+        "layout": "single"
+      },
+      "suspenders": "none",
+      "suspendersColor": "#0771a4",
+      "belt": "none",
+      "hem": "plain"
+    },
+    "legwear": {
+      "kind": "none",
+      "color": "#262b44",
+      "accent": "none"
+    },
+    "shoes": {
+      "kind": "none",
+      "ramp": {
+        "base": "#733e39",
+        "shadow": "#5a3233",
+        "light": "#8f6561"
+      },
+      "sole": "#181425",
+      "accent": "none",
+      "laces": "none"
+    },
+    "pose": {
+      "hands": "relaxed",
+      "stance": "wide",
+      "headTilt": false
+    },
+    "extras": {
+      "leftHand": "none",
+      "rightHand": "none",
+      "costume": "none",
+      "wrist": "none",
+      "accent": "#2ce8f5",
+      "leftTint": "none",
+      "rightTint": "none",
+      "costumeTint": "none",
+      "wristTint": "none"
+    },
+    "body": {
+      "height": "average",
+      "figure": "muscular"
+    },
+    "underwear": {
+      "top": "none",
+      "topRamp": {
+        "base": "#ffffff",
+        "shadow": "#bebdc2",
+        "light": "#ffffff"
+      },
+      "bottom": "swim-trunks",
+      "bottomRamp": {
+        "base": "#0099db",
+        "shadow": "#0774a8",
+        "light": "#33ade2"
+      },
+      "pattern": {
+        "kind": "none",
+        "a": "#ffffff",
+        "b": "none"
+      },
+      "trim": "none"
+    },
+    "apron": {
+      "kind": "none",
+      "ramp": {
+        "base": "#ffffff",
+        "shadow": "#bebdc2",
+        "light": "#ffffff"
+      },
+      "pattern": {
+        "kind": "none",
+        "a": "#ffffff",
+        "b": "none"
+      },
+      "bow": "left"
+    },
+    "accessories": {
+      "mask": {
+        "kind": "none",
+        "color": "#3a4466"
+      },
+      "wings": {
+        "kind": "none",
+        "color": "#3a4466"
+      },
+      "tail": {
+        "kind": "none",
+        "color": "#3a4466"
+      },
+      "gloves": {
+        "kind": "none",
+        "color": "#3a4466"
+      },
+      "necklace": {
+        "kind": "lei",
+        "color": "#f6757a"
+      },
+      "bag": {
+        "kind": "none",
+        "color": "#3a4466"
+      },
+      "mount": {
+        "kind": "shark",
+        "color": "#5a6988"
+      }
+    }
+  }
+}

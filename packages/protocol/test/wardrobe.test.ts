@@ -4,6 +4,9 @@ import {
   avatarFromSeed,
   CharacterLook,
   lookFromCatalog,
+  MOUNT_COLORS,
+  MOUNTS,
+  mountColor,
   OUTFIT_PRESETS,
   rampFrom,
   randomLook,
@@ -65,8 +68,11 @@ describe("wardrobe", () => {
     expect(withPart.length).toBeGreaterThanOrEqual(5);
     for (const p of withPart) {
       const parsed = CharacterLook.parse(applyPreset(base, p.id));
-      // a bad pet or aura would be dropped silently by .catch
-      expect(parsed.accessories).toEqual(p.outfit.accessories);
+      // a bad pet or aura would be dropped silently by .catch; the animal ridden stays (RA1)
+      expect(parsed.accessories).toEqual({
+        ...p.outfit.accessories,
+        mount: base.accessories.mount,
+      });
     }
     // the presets from before WD12 write neither (their JSON is unchanged)
     const tux = OUTFIT_PRESETS.find((p) => p.id === "tuxedo")!;
@@ -80,6 +86,58 @@ describe("wardrobe", () => {
     expect(LOOK_FIXTURES.knight.look.extras?.costume).toBe("knight");
     expect(LOOK_FIXTURES.wizard.look.accessories?.aura?.kind).toBe("sparkles");
     expect(LOOK_FIXTURES.wizard.look.facialHair.style).toBe("wizard-beard");
+  });
+
+  test("riding presets (RA1) bring their animal; other outfits keep the one you ride", () => {
+    const { mount: _, ...accessories } = randomLook(11).accessories;
+    const base = { ...randomLook(11), accessories };
+    const riding = OUTFIT_PRESETS.filter((p) => p.outfit.accessories.mount);
+    expect(riding.map((p) => p.outfit.accessories.mount!.kind).sort()).toEqual([
+      "frog",
+      "horse",
+      "shark",
+      "shark",
+    ]);
+    for (const p of riding) {
+      const parsed = CharacterLook.parse(applyPreset(base, p.id));
+      // a bad mount would be dropped silently by .catch
+      expect(parsed.accessories).toEqual(p.outfit.accessories);
+    }
+    // no preset before RA1 writes a mount (their JSON is unchanged)
+    const before = OUTFIT_PRESETS.slice(
+      0,
+      OUTFIT_PRESETS.findIndex((p) => p.id === "rodeo"),
+    );
+    expect(before.length).toBe(51);
+    for (const p of before) expect(Object.keys(p.outfit.accessories)).not.toContain("mount");
+    // the animal is not clothing: a new outfit keeps it, a riding outfit brings its own
+    const onHorse = applyPreset(base, "rodeo");
+    expect(applyPreset(onHorse, "tuxedo").accessories?.mount).toEqual({
+      kind: "horse",
+      color: "#8a4b2a",
+    });
+    expect(applyPreset(onHorse, "shark-surfer").accessories?.mount?.kind).toBe("shark");
+    // and a look without one gets none
+    expect(applyPreset(base, "tuxedo").accessories).not.toHaveProperty("mount");
+  });
+
+  test("every rideable animal has natural colours, the first is its default", () => {
+    for (const kind of MOUNTS.slice(1)) {
+      const colors = MOUNT_COLORS[kind as Exclude<(typeof MOUNTS)[number], "none">];
+      expect(colors.length).toBeGreaterThanOrEqual(3);
+      for (const c of colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
+      expect(mountColor(kind)).toBe(colors[0]!);
+    }
+  });
+
+  test("the RA1 look fixtures ride their animals", () => {
+    expect(LOOK_FIXTURES.cowboy.look.accessories?.mount?.kind).toBe("horse");
+    expect(LOOK_FIXTURES.cowboy.look.headwear.style).toBe("cowboy-hat");
+    expect(LOOK_FIXTURES.frogrider.look.accessories?.mount?.kind).toBe("frog");
+    expect(LOOK_FIXTURES.sharkrider.look.accessories?.mount?.kind).toBe("shark");
+    // parsed strictly: nothing dropped by .catch
+    for (const n of ["cowboy", "frogrider", "sharkrider"] as const)
+      expect(CharacterLook.parse(LOOK_FIXTURES[n].look)).toEqual(LOOK_FIXTURES[n].look!);
   });
 
   test("naked preset leaves nothing on", () => {
@@ -119,6 +177,15 @@ describe("wardrobe", () => {
     expect(pets).toBeLessThan(75);
     expect(auras).toBeGreaterThan(0);
     expect(auras).toBeLessThan(50);
+    // RA1: an animal to ride is rarer still, in one of its own colours, and only written when
+    // there is one (it is drawn last, so the rest of every look is what it was before)
+    const mounts = looks.filter((a) => a.mount);
+    expect(mounts.length).toBeGreaterThan(0);
+    expect(mounts.length).toBeLessThan(50);
+    for (const a of mounts) {
+      expect(a.mount!.kind).not.toBe("none");
+      expect(MOUNT_COLORS[a.mount!.kind as "horse"]).toContain(a.mount!.color);
+    }
   });
 
   test("repairLook keeps valid wardrobe sections of a partly broken look", () => {

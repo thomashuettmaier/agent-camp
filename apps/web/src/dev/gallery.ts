@@ -1,6 +1,7 @@
 /**
  * ?gallery=1: every character frame for a set of avatars + furniture, for art review.
  * ?gallery=look[&look=tracht|b64:…][&gscale=N]: one detailed look, big hero frames + sheets.
+ * ?gallery=mounts[&gscale=N]: every rideable animal frame, with riders (knight, wizard, mermaid).
  */
 import {
   AGENTS,
@@ -32,6 +33,17 @@ import {
   ramTexture,
   sootTexture,
 } from "../art/itGuy.ts";
+import {
+  DEFAULT_MOUNT_COLOR,
+  MOUNT_ANIMS,
+  MOUNT_BOX,
+  MOUNT_FACINGS,
+  MOUNT_FRAMES,
+  type Mount,
+  mountSheet,
+  RIDE_POSE,
+  riderAnchor,
+} from "../art/mounts.ts";
 import { C } from "../art/palette.ts";
 import {
   leadSheet,
@@ -95,6 +107,10 @@ export function showGallery(app: Application) {
       parseLookParam(params.get("look"), LOOK_FIXTURES) ?? LOOK_FIXTURES.tracht,
       params,
     );
+    return;
+  }
+  if (params.get("gallery") === "mounts") {
+    showMountGallery(app, Number(params.get("gscale")) || 3);
     return;
   }
   if (params.get("gallery") === "toons") {
@@ -319,5 +335,55 @@ function showToonGallery(app: Application, scale: number) {
   app.ticker.add((t) => {
     disc.rotation -= t.deltaMS / 250;
   });
+  window.__galleryReady = true;
+}
+
+/**
+ * ?gallery=mounts: per animal one row per facing, one column per frame (idle, walk, happy,
+ * rest), the rider composited between the back and front layer as in the office.
+ */
+function showMountGallery(app: Application, scale: number) {
+  const root = new Container();
+  root.scale.set(scale);
+  app.stage.addChild(root);
+  const riders: [Mount, keyof typeof LOOK_FIXTURES][] = [
+    ["horse", "knight"],
+    ["frog", "wizard"],
+    ["shark", "mermaid"],
+  ];
+  const cellW = MOUNT_BOX.w + 2;
+  const cellH = MOUNT_BOX.h + 14;
+  let y = 4;
+  for (const [kind, rider] of riders) {
+    const sheet = mountSheet(kind, DEFAULT_MOUNT_COLOR[kind]);
+    const doll = characterSheet(lookFor(LOOK_FIXTURES[rider], "claude", null));
+    for (const facing of MOUNT_FACINGS) {
+      let x = 4;
+      for (const anim of MOUNT_ANIMS) {
+        for (let f = 0; f < MOUNT_FRAMES[anim]; f++) {
+          const ax = x + MOUNT_BOX.w / 2;
+          const ay = y + cellH;
+          const back = new Sprite(sheet.back[facing][anim][f]!);
+          back.anchor.set(0.5, 1);
+          back.position.set(ax, ay);
+          root.addChild(back);
+          if (anim !== "rest") {
+            const r = riderAnchor(kind, facing, anim, f);
+            const s = new Sprite(doll.anims[RIDE_POSE[facing]][0]!);
+            s.anchor.set(0.5, 1);
+            s.position.set(ax + r.x, ay + r.y);
+            root.addChild(s);
+          }
+          const front = new Sprite(sheet.front[facing][anim][f]!);
+          front.anchor.set(0.5, 1);
+          front.position.set(ax, ay);
+          root.addChild(front);
+          x += cellW;
+        }
+      }
+      y += cellH;
+    }
+    y += 6;
+  }
   window.__galleryReady = true;
 }
