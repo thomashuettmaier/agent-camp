@@ -223,13 +223,16 @@ name. On a shared device, "Forget this device" in that menu (or logging out) dro
 part its own colour. Tabs for **Outfits** (one click into a business suit, tuxedo, dirndl,
 lederhosen, kilt, ball gown, swimwear, underwear, naked, chef, superhero, witch, pirate, Santa,
 ninja, cowboy, and crazier: mermaid, knight, wizard, luchador, tourist, clown, storm god and
-more, plus **🎲 Surprise me**), **Body** (height, build, figure, skin colour, pose), **Face**
+more, riders on their animal like the rodeo rider, frog princess and shark surfer, plus **🎲
+Surprise me**), **Body** (height, build, figure, skin colour, pose), **Face**
 (eyes, mouth, makeup), **Hair** (cut, colour, dyed tips, beard), **Head** (hats from top hat
 to Tirolerhut, glasses, earrings, masks), **Top** (underwear, shirt, vest or bodice, jacket or
 coat, patterns, buttons), **Bottom** (underwear, trousers or skirt, apron, socks or tights,
 shoes), **Extras** (held items in any colour, wings, tails, gloves, necklaces, bags, a pet on
-your shoulder, an aura around you) and **Desk & ride**. Flip a part with ◀ ▶ (or the arrow keys); the swatch
-next to it opens the colours (or any colour you like). **Save look** pins the design with
+your shoulder, an aura around you) and **Desk & ride** (your desk items and mess, an animal
+to ride through the office: a horse, a frog or a shark in any colour, and your party ride).
+Flip a part with ◀ ▶ (or the arrow keys); the swatch next to it opens the colours (or any
+colour you like). While you ride, the preview shows you on your animal too. **Save look** pins the design with
 all its detail, **Undo changes** drops what you have not saved. Naked is a smooth, featureless
 doll body. Clothes that are not in the agent colour carry a small agent badge on the chest
 and a band across the back, so you can still tell Claude from Codex at the desk.
@@ -237,7 +240,7 @@ and a band across the back, so you can still tell Claude from Codex at the desk.
 **Describe it**: write how you look (a few words or a whole paragraph) and press **Generate
 look**; the Mac you confirmed **It's me** on draws you from it (as above) within a minute or
 two, replacing a saved design. **Change something** edits the look you wear now instead
-("make my jacket red, add a cowboy hat") and keeps everything else; **Undo that change**
+("make my jacket red, add a cowboy hat", "let me ride a shark") and keeps everything else; **Undo that change**
 brings the old look back. The new look goes live as soon as it is drawn, there is nothing
 to save. While you wear your own design, this tab offers the way back: **Use the look from my
 description** (or **Back to the automatic look** if you never wrote one). Only that Mac

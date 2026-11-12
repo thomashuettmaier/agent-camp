@@ -4,6 +4,8 @@ import {
   applyPreset,
   avatarFromSeed,
   CharacterLook,
+  MOUNT_COLORS,
+  MOUNTS,
   OUTFIT_PRESETS,
   PETS,
   randomLook,
@@ -24,8 +26,8 @@ const strict = (d: Draft) => {
   // nothing silently dropped by .catch()
   for (const k of ["body", "underwear", "apron", "accessories", "extras"] as const)
     expect(r.data[k]).toBeDefined();
-  // nor an optional part (WD12)
-  for (const k of ["pet", "aura"] as const)
+  // nor an optional part (WD12, RA1)
+  for (const k of ["pet", "aura", "mount"] as const)
     if (d.look.accessories[k]) expect(r.data.accessories?.[k]).toEqual(d.look.accessories[k]);
 };
 
@@ -123,12 +125,46 @@ describe("look studio: Design it", () => {
     }
   });
 
+  test("an animal to ride (RA1): picked in Desk & ride, in its own colour unless you chose one", () => {
+    const row = DESIGN_SECTIONS.find((s) => s.id === "desk")!.rows.find((r) => r.id === "mount")!;
+    expect(row.label).toBe("Riding animal");
+    expect(row.options.map((o) => o.id)).toEqual([...MOUNTS]);
+    // a catalog look rides nothing yet
+    expect(drafts[0]!.look.accessories.mount).toBeUndefined();
+    expect(row.get(drafts[0]!)).toBe("none");
+    expect(visibleColors(row, drafts[0]!)).toEqual([]);
+    const d = structuredClone(drafts[0]!);
+    // flipping through: each animal in its natural colour (chestnut, green, grey-blue)
+    for (const kind of ["horse", "frog", "shark"] as const) {
+      row.set(d, kind);
+      expect(CharacterLook.parse(d.look).accessories?.mount).toEqual({
+        kind,
+        color: MOUNT_COLORS[kind][0]!,
+      });
+    }
+    expect(MOUNT_COLORS.horse[0]).toBe("#8a4b2a");
+    // a colour picked by hand survives switching animals
+    row.set(d, "horse");
+    visibleColors(row, d)[0]!.set(d, "#f4f4f2");
+    row.set(d, "frog");
+    expect(d.look.accessories.mount).toEqual({ kind: "frog", color: "#f4f4f2" });
+    strict(d);
+    row.set(d, "none");
+    expect(visibleColors(row, d)).toEqual([]);
+    strict(d);
+    // the outfits keep the animal, a riding outfit brings its own
+    row.set(d, "shark");
+    expect(applyPreset(d.look, "tuxedo").accessories?.mount?.kind).toBe("shark");
+    expect(applyPreset(d.look, "rodeo").accessories?.mount?.kind).toBe("horse");
+  });
+
   test("desk items never repeat and the draft key notices changes", () => {
     const d = structuredClone(drafts[0]!);
     const key = draftKey(d);
     const rows = DESIGN_SECTIONS.find((s) => s.id === "desk")!.rows;
-    rows[0]!.set(d, "lamp");
-    expect(rows[1]!.skip!(d).has("lamp")).toBe(true);
+    const slot = (i: number) => rows.find((r) => r.id === `desk${i}`)!;
+    slot(0).set(d, "lamp");
+    expect(slot(1).skip!(d).has("lamp")).toBe(true);
     expect(draftKey(d)).not.toBe(key);
   });
 });

@@ -40,6 +40,9 @@ import {
   LENS_TINTS,
   MASKS,
   MAX_DESK_PROPS,
+  MOUNTS,
+  type MountKind,
+  mountColor,
   NECKLACES,
   NECKWEAR,
   OUTER_KINDS,
@@ -78,7 +81,7 @@ export const draftKey = (d: Draft): string => JSON.stringify(d);
 
 export type Opt = { id: string; label: string };
 /** Which swatches a colour chip offers. */
-export type Palette = "fabric" | "skin" | "hair" | "eyes";
+export type Palette = "fabric" | "skin" | "hair" | "eyes" | "mount";
 export type ColorSlot = {
   id: string;
   label: string;
@@ -1255,6 +1258,37 @@ export const DESIGN_SECTIONS: readonly DesignSection[] = [
     id: "desk",
     title: "Desk & ride",
     rows: [
+      // rideable animals (RA1): part of the look (`accessories.mount`), drawn under the rider
+      kindRow(
+        "mount",
+        "Riding animal",
+        MOUNTS,
+        (l) => l.accessories.mount?.kind ?? "none",
+        (l, v) => {
+          // a new animal starts in its own colour; a colour you picked yourself stays
+          const cur = l.accessories.mount;
+          const own = cur && cur.kind !== "none" && cur.color !== mountColor(cur.kind);
+          const color = own ? cur.color : mountColor(v);
+          l.accessories = { ...l.accessories, mount: { kind: v as MountKind, color } };
+        },
+        {
+          colors: [
+            hexChip(
+              "mount-color",
+              "animal colour",
+              (l) => l.accessories.mount?.color ?? mountColor("horse"),
+              (l, h) => {
+                l.accessories = {
+                  ...l.accessories,
+                  mount: { kind: l.accessories.mount?.kind ?? "none", color: h },
+                };
+              },
+              false,
+              "mount",
+            ),
+          ],
+        },
+      ),
       ...deskSlots.map(
         (i): DesignRow => ({
           id: `desk${i}`,
@@ -1283,7 +1317,7 @@ export const DESIGN_SECTIONS: readonly DesignSection[] = [
       },
       {
         id: "vehicle",
-        label: "Ride",
+        label: "Party ride",
         options: VEHICLES,
         get: (d) => d.vehicle,
         set: (d, id) => {

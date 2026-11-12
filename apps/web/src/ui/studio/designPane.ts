@@ -10,6 +10,7 @@ import {
   EYE_COLORS,
   FABRIC_COLORS,
   HAIR_HEXES,
+  MOUNT_COLORS,
   OUTFIT_PRESETS,
   randomLook,
   SKIN_COLORS,
@@ -30,6 +31,10 @@ const PALETTES: Record<Palette, readonly string[]> = {
   skin: SKIN_COLORS,
   hair: HAIR_HEXES,
   eyes: [...EYE_COLORS, "#3e8948", "#0099db", "#b55088", "#e43b44"],
+  // rideable animals (RA1): every animal's natural colours, then a few fun ones
+  mount: [
+    ...new Set([...Object.values(MOUNT_COLORS).flat(), "#e43b44", "#f6757a", "#b55088", "#fee761"]),
+  ],
 };
 
 export type DesignPane = {
