@@ -14,7 +14,7 @@
  * lives per animal in art/mounts/ (horse.ts, frog.ts, shark.ts) on a small painting kit
  * (kit.ts). Preview every frame with `bun apps/web/scripts/mount-grid.ts out.png horse`.
  */
-import type { MountKind } from "@agent-office/protocol";
+import { type MountKind, mountColor } from "@agent-office/protocol";
 import { CanvasSource, Rectangle, Texture } from "pixi.js";
 import { RefCache } from "./avatar/refCache.ts";
 import {
@@ -54,11 +54,14 @@ export const MOUNT_FRAME_S: Record<MountAnim, number> = {
   rest: 0.8,
 };
 
-/** A good-looking default body colour per animal (bay horse, green frog, grey-blue shark). */
+/**
+ * The colour each animal starts in (chestnut horse, green frog, grey-blue shark): the same as
+ * the studio's and the dice's first pick (`MOUNT_COLORS` in the protocol).
+ */
 export const DEFAULT_MOUNT_COLOR: Record<Mount, string> = {
-  horse: "#b86f50",
-  frog: "#63c74d",
-  shark: "#5a6988",
+  horse: mountColor("horse"),
+  frog: mountColor("frog"),
+  shark: mountColor("shark"),
 };
 
 /** Size of one mount frame in world px (anchor bottom-centre). */
