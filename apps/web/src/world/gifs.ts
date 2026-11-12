@@ -185,13 +185,13 @@ export class HeadGifs {
       const tex = anim.textures[frameAt(anim.ends, this.time * 1000)];
       if (tex && s.sprite.texture !== tex) s.sprite.texture = tex;
       s.sprite.scale.set(fitScale(anim.width, anim.height));
-      const headY = c.y - (c.mode === "seated" || c.anim === "sitFront" ? 21 : 24);
+      const headY = c.headY;
       let bottom = headY - GIF_GAP;
       // make room for an activity bubble (eased so it doesn't jump)
       if (c.bubble.visible) bottom = Math.min(bottom, c.bubble.y - c.bubble.height - 1);
       const want = headY - GIF_GAP - bottom;
       s.lift += (want - s.lift) * Math.min(1, dt * 10);
-      s.sprite.position.set(Math.round(c.x), Math.round(headY - GIF_GAP - s.lift));
+      s.sprite.position.set(Math.round(c.x + c.rideDx), Math.round(headY - GIF_GAP - s.lift));
       s.sprite.visible = true;
     }
   }

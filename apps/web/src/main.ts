@@ -20,12 +20,15 @@
  *   ?toons=0|1    The portal characters off / on (default: on, off on the kiosk)   ?gifs=0  no head GIFs
  *   ?gallery=toons[&gscale=N]  every portal character frame and the portal
  *   ?itguy=0      No IT guy on this screen (no cabin fires, no RAM runs; the cabin stays)
+ *   ?mounts=horse|frog|shark|mixed  (dev) everybody rides that animal on this screen, whatever
+ *                 their look says (mixed: one of the three per person); any feed
  */
 import "./ui/theme.css";
 import "./ui/office.css";
 import {
   type AvatarEditResponse,
   type AvatarSpec,
+  hashString,
   type InteractRequest,
   isCatInteraction,
   type LookDescribeResponse,
@@ -77,7 +80,7 @@ import { GamesUi } from "./ui/gamesUi.ts";
 import { MessagesPanel, storedMessageRead } from "./ui/messages.ts";
 import { Minimap } from "./ui/minimap.ts";
 import { Cfo } from "./world/cfo.ts";
-import { CharacterManager } from "./world/characters.ts";
+import { CharacterManager, type MountInfo } from "./world/characters.ts";
 import { CatColony } from "./world/colony.ts";
 import { Effects } from "./world/effects.ts";
 import { HeadGifs } from "./world/gifs.ts";
@@ -96,6 +99,7 @@ import {
   podOrigin,
   podRowsFor,
 } from "./world/map.ts";
+import { devMount } from "./world/mountRules.ts";
 import { OfficeScene } from "./world/office.ts";
 import { PartyWorld } from "./world/party.ts";
 import { PortalDuo } from "./world/portalCharacters.ts";
@@ -130,6 +134,8 @@ type OfficeApi = {
   itGuy(): { x: number; y: number; mode: string; inside: boolean; burning: boolean } | null;
   /** slow down / freeze the world clock (screenshots of short moments); 1 = normal */
   setSpeed(k: number): void;
+  /** rideable animals and what they are doing (ride, lead, stand, pet, park) */
+  mounts(): MountInfo[];
 };
 declare global {
   interface Window {
@@ -212,6 +218,9 @@ async function boot() {
   }
   // Friday after work: the shop sells more, so the smokers' corner fills up quickly
   if (feierabend) chars.shopChance = 0.4;
+  // `?mounts=` (dev): everybody rides on this screen
+  const mountsParam = params.get("mounts");
+  if (devMount(mountsParam, 0)) chars.mountOverride = (id) => devMount(mountsParam, hashString(id));
   const colony = new CatColony(scene.objects, scene.fx, scene.map, effects, {
     idleSpots: () => chars.idleSpots(),
     waitSpots: () => chars.catWaitSpots(),
@@ -1408,6 +1417,7 @@ async function boot() {
       });
     },
     characters: () => chars.chars.size,
+    mounts: () => chars.mountStates(),
     cats: () => colony.cats().length,
     portalCharacters: () => duo?.where() ?? null,
     itGuy: () => itGuy?.where() ?? null,

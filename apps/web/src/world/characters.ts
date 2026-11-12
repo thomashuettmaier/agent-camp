@@ -43,6 +43,7 @@ import {
   CHAT_TOPICS,
   chatIconTextures,
   ghostTextures,
+  heartTexture,
   jointTextures,
   mugTextures,
   pileTextures,
@@ -109,6 +110,7 @@ import {
   podDeskSpan,
   TILE,
 } from "./map.ts";
+import { MountCompanion, type MountSpec, type MountWorld, mountOfLook } from "./mount.ts";
 import type { OfficeScene } from "./office.ts";
 import { findPath, findPathPx } from "./pathing.ts";
 
@@ -182,6 +184,17 @@ export const FIRE_AT = 0.8;
 
 const tileCenter = (t: Point): Point => ({ x: t.x * TILE + 8, y: t.y * TILE + 13 });
 
+/** A rideable animal for dev tools / e2e (`window.__office.mounts()`). */
+export type MountInfo = {
+  sessionId: string;
+  kind: string;
+  state: string;
+  x: number;
+  y: number;
+  /** what its character does (mode), "hidden" while not shown */
+  rider: string;
+};
+
 export class SessionCharacter {
   readonly sprite: Sprite;
   sheet: CharacterSheet;
@@ -241,6 +254,18 @@ export class SessionCharacter {
   startedAt = 0;
   project: string | undefined;
   machine: string | undefined;
+  /** rideable animal (look.accessories.mount), see mount.ts */
+  mount: MountCompanion | null = null;
+  /** set by the mount each frame: the sprite is drawn this far above / beside (x, y) */
+  lift = 0;
+  rideDx = 0;
+  /** set by the mount: show this pose instead of the mode's (in the saddle, petting) */
+  ridePose: AnimName | null = null;
+  ridePoseFps = 1;
+  /** set by the mount: hopping on / off, don't walk yet */
+  holdWalk = false;
+  /** set by the mount: walking speed factor (riding is a bit faster) */
+  speedK = 1;
 
   constructor(
     readonly sessionId: string,
@@ -290,6 +315,11 @@ export class SessionCharacter {
   get hasDesk() {
     return this.desk < MAX_DESKS;
   }
+
+  /** Top of the head (world px), raised with the rider in the saddle. */
+  get headY(): number {
+    return this.y - (this.mode === "seated" || this.anim === "sitFront" ? 21 : 24) - this.lift;
+  }
 }
 
 export class CharacterManager {
@@ -329,6 +359,8 @@ export class CharacterManager {
   cfoVisit = 9;
   /** how likely an idle wander goes to ask the CFO for something (party demo: more) */
   cfoChance = 0.06;
+  /** `?mounts=` (dev): the animal a person rides whatever their look says; null = the look */
+  mountOverride: (personId: string) => MountSpec | null = () => null;
   private hits = new HitCounter();
   private craters: Crater[] = [];
   private rebels = new Map<string, Rebellion>();
@@ -355,6 +387,15 @@ export class CharacterManager {
     },
     pathTo: (from, to) => findPathPx(this.scene.map, from, to),
     catEats: (sprite, x, y) => this.catEats(sprite, x, y),
+  };
+  private readonly mountWorld: MountWorld = {
+    layer: () => this.scene.objects,
+    walkable: (tx, ty) => this.scene.map.isWalkable(tx, ty),
+    seat: (c) => (c.hasDesk ? this.seatOf(c.pod, c.desk) : null),
+    offline: (c) => this.isOffline(c),
+    walkSpeed: WALK_SPEED,
+    puff: (x, y) => this.effects.puff(x, y),
+    floater: (x, y) => this.effects.floater(heartTexture(), x, y, 1.6, 16, 2),
   };
 
   constructor(
@@ -400,6 +441,7 @@ export class CharacterManager {
           const i = old.frames.indexOf(c.sprite.texture);
           c.sprite.texture = c.sheet.frames[Math.max(0, i)]!;
           releaseSheet(old);
+          this.syncMount(c, p, s, true);
         }
         this.syncSlots();
         break;
@@ -473,8 +515,8 @@ export class CharacterManager {
 
   /** A short text bubble that floats up over a character (pokes from viewers). */
   say(c: SessionCharacter, text: string) {
-    const head = c.y - (c.mode === "seated" ? 21 : 24);
-    this.effects.floater(textBubbleTexture(text), c.x, head - 2, 3.2, 10);
+    const head = c.y - (c.mode === "seated" ? 21 : 24) - c.lift;
+    this.effects.floater(textBubbleTexture(text), c.x + c.rideDx, head - 2, 3.2, 10);
   }
 
   /**
@@ -714,8 +756,32 @@ export class CharacterManager {
 
   /** Holds one sheet reference: release it when the character drops or replaces it. */
   private sheetFor(p: PersonState, s: SessionState): CharacterSheet {
+    return characterSheet(this.lookOf(p, s));
+  }
+
+  private lookOf(p: PersonState, s: SessionState) {
     const variation = s.desk === 0 ? null : sessionVariation(s.sessionId);
-    return characterSheet(lookFor(p.avatar, s.agent, variation));
+    return lookFor(p.avatar, s.agent, variation);
+  }
+
+  /** Give a character the animal of its look (or take it away / re-tint it), live. */
+  private syncMount(c: SessionCharacter, p: PersonState, s: SessionState, appear: boolean) {
+    const spec =
+      this.mountOverride(p.personId) ?? mountOfLook(this.lookOf(p, s).look.accessories.mount);
+    if (!spec) {
+      if (!c.mount) return;
+      if (c.sprite.visible) this.effects.puff(c.mount.pos.x, c.mount.pos.y - 8);
+      c.mount.destroy();
+      c.mount = null;
+      MountCompanion.clearRider(c);
+      return;
+    }
+    if (c.mount) {
+      c.mount.setSpec(spec);
+      return;
+    }
+    c.mount = new MountCompanion(spec, this.mountWorld, seededRandom(`mount:${c.sessionId}`));
+    c.mount.attach(c, appear);
   }
 
   private doorPoint(): Point {
@@ -785,6 +851,7 @@ export class CharacterManager {
         this.onMoment({ kind: "started", x: c.x, y: c.y - 30, name });
       }
     }
+    this.syncMount(c, p, s, false);
     this.place(c);
   }
 
@@ -812,6 +879,8 @@ export class CharacterManager {
 
   private destroy(c: SessionCharacter) {
     c.removed = true;
+    c.mount?.destroy();
+    c.mount = null;
     c.helpers.destroy(false);
     this.releasePoi(c);
     this.endChat(c);
@@ -1241,8 +1310,9 @@ export class CharacterManager {
   }
 
   private place(c: SessionCharacter) {
-    const hop = c.hopT > 0 ? Math.round(Math.sin((1 - c.hopT / HOP_S) * Math.PI) * 5) : 0;
-    c.sprite.position.set(Math.round(c.x), Math.round(c.y) - hop);
+    const hop =
+      c.hopT > 0 && !c.mount ? Math.round(Math.sin((1 - c.hopT / HOP_S) * Math.PI) * 5) : 0;
+    c.sprite.position.set(Math.round(c.x + c.rideDx), Math.round(c.y - c.lift) - hop);
     c.sprite.zIndex =
       c.y + (c.mode === "poi" && c.poi?.spot && c.poi.pose === "sit" ? SEAT_LIFT : 0);
     // at the bar counter (stool, back to the camera) the glass stands on the counter beside them
@@ -1258,7 +1328,7 @@ export class CharacterManager {
     } else if (showMug) {
       const side = c.facing === "left" ? -6 : c.facing === "right" ? 6 : 6;
       const lift = c.anim === "sitFront" ? 4 : 0;
-      c.mug.position.set(Math.round(c.x + side), Math.round(c.y - 6 - lift));
+      c.mug.position.set(Math.round(c.x + c.rideDx + side), Math.round(c.y - c.lift - 6 - lift));
       c.mug.zIndex = c.sprite.zIndex + 0.5;
       c.mug.texture = CARRY_TEXTURES[c.carry]()[Math.floor(this.clock * 2.5) % 2]!;
     }
@@ -1357,8 +1427,8 @@ export class CharacterManager {
     if (c.puffT > 0) return;
     c.puffT = 1 + this.rand() * 0.8;
     const side = c.facing === "left" ? -6 : 6;
-    const head = c.y - (c.anim === "sitFront" ? 21 : 24);
-    this.effects.floater(smokeTexture(), c.x + side, head + 6, 2.2, 16, 2);
+    const head = c.y - (c.anim === "sitFront" ? 21 : 24) - c.lift;
+    this.effects.floater(smokeTexture(), c.x + c.rideDx + side, head + 6, 2.2, 16, 2);
     if (!c.chat && c.iconT <= 0 && this.rand() < 0.3) {
       c.icon.texture = chatIconTextures()[CHAT_ICONS.indexOf("chill")]!;
       c.icon.visible = true;
@@ -1422,7 +1492,7 @@ export class CharacterManager {
     c.splat.visible = c.splatT > 0 && c.sprite.visible;
     if (c.splat.visible) {
       const up = c.mode === "seated" ? 14 : 16;
-      c.splat.position.set(Math.round(c.x + 1), Math.round(c.y - up));
+      c.splat.position.set(Math.round(c.x + c.rideDx + 1), Math.round(c.y - c.lift - up));
       c.splat.alpha = Math.min(1, c.splatT / 30);
     }
   }
@@ -1855,8 +1925,10 @@ export class CharacterManager {
     }
     const a = this.selArrow;
     a.texture = selectArrowTextures()[Math.floor(time * 3) % 2]!;
-    const headY = c.y - (c.mode === "seated" || c.anim === "sitFront" ? 21 : 24);
-    a.position.set(Math.round(c.x), Math.round(headY - 5 + Math.round(Math.sin(time * 5) * 1.5)));
+    a.position.set(
+      Math.round(c.x + c.rideDx),
+      Math.round(c.headY - 5 + Math.round(Math.sin(time * 5) * 1.5)),
+    );
     a.visible = true;
   }
 
@@ -1885,7 +1957,7 @@ export class CharacterManager {
       }
       case "walking": {
         const zombie = this.isZombie(c);
-        this.walkStep(c, zombie ? dt * 0.45 : dt);
+        if (!c.holdWalk) this.walkStep(c, (zombie ? dt * 0.45 : dt) * c.speedK);
         const walkAnim =
           c.facing === "left"
             ? "walkLeft"
@@ -1998,6 +2070,7 @@ export class CharacterManager {
         c.sprite.tint = k ? 0x000000 : 0xffffff;
         c.sprite.x = Math.round(c.x + (k ? 1 : -1));
         c.sprite.visible = c.zapT < 0.9;
+        c.mount?.update(c, dt);
         if (c.zapT >= 0.9) {
           this.destroy(c);
           return;
@@ -2011,8 +2084,8 @@ export class CharacterManager {
       c.iconT -= dt;
       c.icon.visible = c.iconT > 0;
       const right = c.facing === "right" ? 1 : c.facing === "left" ? -1 : 0;
-      const top = c.y - (c.anim === "sitFront" ? 21 : 24);
-      c.icon.position.set(Math.round(c.x + right * 3), Math.round(top - 1));
+      const top = c.y - (c.anim === "sitFront" ? 21 : 24) - c.lift;
+      c.icon.position.set(Math.round(c.x + c.rideDx + right * 3), Math.round(top - 1));
     }
     // bubbles + markers
     if (c.bubbleT > 0) {
@@ -2020,11 +2093,11 @@ export class CharacterManager {
       c.bubble.alpha = Math.min(1, c.bubbleT / 0.5);
       c.bubble.visible = c.bubbleT > 0;
     }
-    const headY = c.y - (c.mode === "seated" || c.anim === "sitFront" ? 21 : 24);
+    const headY = c.headY;
     if (c.bubble.visible) {
       // stagger heights between neighbouring pods (and desks) so bubbles don't stack up
       const lift = c.mode === "seated" ? (c.pod % 2) * 6 + (c.desk % 2) * 2 : 0;
-      c.bubble.position.set(Math.round(this.bubbleX(c)), Math.round(headY - 1 - lift));
+      c.bubble.position.set(Math.round(this.bubbleX(c) + c.rideDx), Math.round(headY - 1 - lift));
     }
     if (c.mode === "seated" && c.bubbleT <= 0) {
       if (this.isOffline(c)) {
@@ -2056,7 +2129,14 @@ export class CharacterManager {
         c.marker.position.set(Math.round(c.x + 8), Math.round(headY + 1));
       }
     }
+    if (c.mount) this.rideStep(c, dt, time);
     this.place(c);
+  }
+
+  /** The animal moves; in the saddle (or petting it) the rider shows the pose it asks for. */
+  private rideStep(c: SessionCharacter, dt: number, time: number) {
+    c.mount!.update(c, dt);
+    if (c.ridePose && !(c.rally && c.bowT > 0)) this.setAnim(c, c.ridePose, c.ridePoseFps, time);
   }
 
   private seatedStep(c: SessionCharacter, activity: Activity, dt: number, time: number) {
@@ -2190,11 +2270,31 @@ export class CharacterManager {
     let best: SessionCharacter | null = null;
     for (const c of this.chars.values()) {
       if (!c.sprite.visible) continue;
-      if (wx >= c.x - 8 && wx <= c.x + 8 && wy >= c.y - BODY_H + 2 && wy <= c.y + 2) {
+      // in the saddle the rider is drawn higher up (the animal under them counts too)
+      const x = c.x + c.rideDx;
+      if (wx >= x - 8 && wx <= x + 8 && wy >= c.y - c.lift - BODY_H + 2 && wy <= c.y + 2) {
         if (!best || c.y > best.y) best = c;
       }
     }
     return best;
+  }
+
+  /** Rideable animals right now (dev / e2e: `window.__office.mounts()`). */
+  mountStates(): MountInfo[] {
+    const out: MountInfo[] = [];
+    for (const c of this.chars.values()) {
+      const m = c.mount;
+      if (!m || c.removed) continue;
+      out.push({
+        sessionId: c.sessionId,
+        kind: m.spec.kind,
+        state: m.state,
+        x: m.pos.x,
+        y: m.pos.y,
+        rider: c.sprite.visible ? c.mode : "hidden",
+      });
+    }
+    return out;
   }
 
   /** Characters that are idle somewhere (for the cats). */
