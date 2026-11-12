@@ -528,6 +528,13 @@ export const AURAS = [
   "bees",
   "lightning",
 ] as const;
+/**
+ * An animal the character rides through the office (rideable animals, RA1). The rider sits on
+ * it while walking, and now and then hops off to pet it or walk it on a lead. Not painted into
+ * the character sheet: the office and the studio draw it as its own sprite under the rider.
+ */
+export const MOUNTS = ["none", "horse", "frog", "shark"] as const;
+export type MountKind = (typeof MOUNTS)[number];
 
 // ---- extras: things from the look editor catalog (same ids as catalog.ts) ------------------
 /** Something held in a hand (catalog `HELD_ITEMS`). */
@@ -666,6 +673,10 @@ export const Accessories = z
     // crazy wardrobe (WD12): missing in looks stored before it; a bad value drops only that part
     pet: Part(PETS, "pet riding on the shoulder").optional().catch(undefined),
     aura: Part(AURAS, "effect around the whole character").optional().catch(undefined),
+    // rideable animals (RA1): missing in looks stored before it; a bad value drops only the mount
+    mount: Part(MOUNTS, "animal the character rides (horse, frog or shark)")
+      .optional()
+      .catch(undefined),
   })
   .describe("costume and everyday accessories, each with its colour; none unless described");
 export type Accessories = z.infer<typeof Accessories>;

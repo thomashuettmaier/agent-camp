@@ -283,6 +283,10 @@
           "aura": {
             "kind": "none",
             "color": "#3a4466"
+          },
+          "mount": {
+            "kind": "none",
+            "color": "#c28569"
           }
         }
       }
