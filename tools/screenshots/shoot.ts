@@ -6,12 +6,15 @@
  *   bun run screenshots -- --only busy  # scenes whose name contains "busy"
  *   bun run screenshots -- --no-build   # reuse apps/web/dist
  *   bun run screenshots -- --no-gif
+ *   bun run screenshots -- --shard 2/4  # one of 4 balanced parts (CI runs them in parallel)
  *
  * Each scene gets a fresh server so nobody lingers in the 60 s leave grace between scenes.
  */
+import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+import { LOOK_FIXTURES } from "@agent-office/protocol/fixtures";
 import { generateWeek, postBackfill, runScenario, type SimHandle } from "@agent-office/sim";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { encodeGif, type RgbaFrame } from "./gif.ts";
@@ -33,6 +36,17 @@ const argv = process.argv.slice(2);
 const ONLY = argv.includes("--only") ? (argv[argv.indexOf("--only") + 1] ?? "") : "";
 const BUILD = !argv.includes("--no-build");
 const GIF = !argv.includes("--no-gif");
+/** `--shard 2/4`: only this part of the scenes (parallel CI jobs) */
+const SHARD = (() => {
+  const m = argv.includes("--shard")
+    ? /^(\d+)\/(\d+)$/.exec(argv[argv.indexOf("--shard") + 1] ?? "")
+    : null;
+  if (!m) return null;
+  const index = Number(m[1]);
+  const of = Number(m[2]);
+  if (index < 1 || index > of) throw new Error(`--shard ${index}/${of}: index out of range`);
+  return { index, of };
+})();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const log = (s: string) => console.log(`[shots] ${s}`);
@@ -119,6 +133,10 @@ async function context(vp: Viewport): Promise<BrowserContext> {
     deviceScaleFactor: 1,
     timezoneId: TIMEZONE,
     locale: "en-GB",
+    extraHTTPHeaders: { authorization: `Bearer ${PASSWORD}` },
+    // every scene's server is a new origin, so each would keep its own service worker alive
+    // for the rest of the run; shots never need the offline cache
+    serviceWorkers: "block",
   });
   return contexts[vp];
 }
@@ -445,6 +463,38 @@ async function sceneOfficeLife() {
   }
 }
 
+/**
+ * 16: Friday after work in the east street block (`?feierabend=1`): happy hour in the bar,
+ * beers at the standing tables, someone smoking in the corner by the weed shop.
+ */
+async function sceneBarAndShop() {
+  const name = "16-bar-and-shop";
+  if (!want(name)) return;
+  log(name);
+  const o = await office("busy");
+  try {
+    for (const vp of Object.keys(VIEWPORTS) as Viewport[]) {
+      const page = await openOffice(
+        vp,
+        `${o.http}/?feierabend=1&weather=sun&zoom=1.7`,
+        BUSY.people,
+        BUSY.sessions,
+        800,
+      );
+      await livenUp(page);
+      await sleep(40_000);
+      // frame both buildings: the bar on top, the shop and the smokers' corner below
+      await page.evaluate(() => window.__office.camera.lookAt(68, 15.5, 1.7));
+      await sleep(1000);
+      await page.evaluate(() => window.__office.setSpeed(0));
+      await shoot(page, `${name}-${vp}`);
+      await page.close();
+    }
+  } finally {
+    o.stop();
+  }
+}
+
 /** 13: a `/clear` (end + restart a second later): the old character gets zapped. */
 async function sceneCleared() {
   const name = "13-cleared-session";
@@ -486,6 +536,55 @@ async function sceneCleared() {
     await page.close();
   } finally {
     o.stop();
+  }
+}
+
+/**
+ * 14: a detailed look (the hand-authored `tracht` fixture, no AI) on Anna of the `one`
+ * scenario, close up. Injected client-side as the server's avatar.updated would carry it;
+ * she is set to waiting so she faces the camera.
+ */
+async function sceneDetailedLook() {
+  const name = "14-detailed-look";
+  if (!want(name)) return;
+  log(name);
+  const o = await office("one");
+  try {
+    for (const vp of Object.keys(VIEWPORTS) as Viewport[]) {
+      const page = await openOffice(vp, `${o.http}/?hour=14`, 1, 1, 1500);
+      const [x] = await sessionsOf(page);
+      if (!x) throw new Error("no session in scenario one");
+      await inject(page, "avatar.updated", { personId: x.personId, avatar: LOOK_FIXTURES.tracht });
+      await inject(page, "session.activityChanged", {
+        personId: x.personId,
+        sessionId: x.sessionId,
+        activity: "waiting",
+        previous: x.activity,
+      });
+      await page.evaluate((p) => window.__office.camera.focusPerson(p, 6), x.personId);
+      await sleep(1500);
+      await shoot(page, `${name}-${vp}`);
+      await page.close();
+    }
+  } finally {
+    o.stop();
+  }
+}
+
+/** 15: the dev look gallery (`?gallery=look`): hero frames of the tracht look + full sheets. */
+async function sceneLookGallery() {
+  const name = "15-look-gallery";
+  if (!want(name)) return;
+  log(name);
+  const srv = await startServer();
+  try {
+    const page = await openPage("laptop", `${srv.http}/?gallery=look&look=tracht`);
+    await page.waitForFunction(() => window.__galleryReady === true, null, { timeout: 30_000 });
+    await sleep(500);
+    await shoot(page, name, { fullPage: true });
+    await page.close();
+  } finally {
+    srv.stop();
   }
 }
 
@@ -659,7 +758,396 @@ async function busyGif() {
   }
 }
 
+/** A deploy must not discard an unfocused/collapsed draft or a pending send. */
+async function checkMessageReloadGuard(url: string) {
+  const ctx = await browser.newContext({
+    viewport: VIEWPORTS.laptop,
+    serviceWorkers: "block",
+    extraHTTPHeaders: { authorization: `Bearer ${PASSWORD}` },
+  });
+  try {
+    const page = await ctx.newPage();
+    await page.goto(url);
+    await page.waitForFunction(() => window.__office?.ready);
+    await page.locator(".messages-launch").click();
+    const text = page.locator('textarea[aria-label="Office message"]');
+    await text.fill("Keep this unfocused draft across a release");
+    await text.press("Escape");
+    await page.clock.install();
+    let navigations = 0;
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) navigations++;
+    });
+    await page.route(url, async (route) => {
+      if (route.request().isNavigationRequest()) return route.continue();
+      await route.fulfill({
+        contentType: "text/html",
+        body: '<script type="module" src="/assets/new-release.js"></script>',
+      });
+    });
+    await page.clock.fastForward(10 * 60_000);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await page.locator('[title="A new version is out: refresh"]').waitFor();
+    await page.clock.fastForward(75_000);
+    assert.equal(navigations, 0, "collapsed unfocused draft blocks idle release reload");
+    assert.equal(await text.inputValue(), "Keep this unfocused draft across a release");
+
+    let pending: (() => Promise<void>) | undefined;
+    await page.route("**/api/messages", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      pending = () =>
+        route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Local pending-send check" }),
+        });
+    });
+    await page.locator(".messages-launch").click();
+    await text.press("Control+Enter");
+    await page.waitForFunction(
+      () => document.querySelector(".messages-send-status")?.textContent === "Saving…",
+    );
+    // Isolate the busy flag from text length: an in-flight request must block reload itself.
+    await text.evaluate((el) => {
+      (el as HTMLTextAreaElement).value = "";
+    });
+    await page.locator(".messages-panel").press("Escape");
+    await page.clock.fastForward(75_000);
+    assert.equal(navigations, 0, "pending send alone blocks idle release reload");
+    assert.ok(pending, "send is pending at the network boundary");
+    await pending();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".messages-send-status")
+        ?.textContent?.includes("Local pending-send check"),
+    );
+    const reloaded = page.waitForEvent("framenavigated");
+    await page.clock.fastForward(75_000);
+    await reloaded;
+    assert.equal(navigations, 1, "idle release reload resumes after draft/pending state clears");
+  } finally {
+    await ctx.close();
+  }
+}
+
+/** Real HTTP + socket history and DOM interaction checks, no real desktop notifications. */
+async function sceneMessages() {
+  const name = "15-office-messages";
+  if (!want(name)) return;
+  log(name);
+  const o = await office("busy");
+  let serial = 0;
+  const post = async (text: string) => {
+    const response = await fetch(`${o.http}/api/messages`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${PASSWORD}`,
+        "content-type": "application/json",
+        "cf-connecting-ip": `shots-${++serial}`,
+      },
+      body: JSON.stringify({
+        audience: { kind: "everyone" },
+        text,
+        notifyDesktop: false,
+        from: "Demo",
+      }),
+    });
+    assert.equal(response.status, 201);
+  };
+  try {
+    await post("Lunch in five! Everyone can read this shared office log.");
+    for (const vp of Object.keys(VIEWPORTS) as Viewport[]) {
+      const page = await openOffice(vp, `${o.http}/?hour=15`, BUSY.people, BUSY.sessions, 500);
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      const launcher = page.locator(".messages-launch");
+      await page.waitForFunction(
+        () => document.querySelector(".messages-history-status")?.textContent === "",
+      );
+      assert.equal(await page.locator(".messages-panel").isVisible(), false);
+      let historyReads = 0;
+      page.on("request", (request) => {
+        if (request.method() === "GET" && new URL(request.url()).pathname === "/api/messages")
+          historyReads++;
+      });
+      await post(`New announcement for ${vp}`);
+      await page.waitForFunction(() =>
+        document.querySelector(".messages-launch")?.textContent?.includes("· 1"),
+      );
+      assert.equal(await page.locator(".messages-panel").isVisible(), false);
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await sleep(150);
+      assert.equal(
+        historyReads,
+        0,
+        "contiguous live arrivals / healthy-tab returns must not fetch history",
+      );
+      await launcher.click();
+      assert.equal(
+        await page.locator("select[aria-label='Notification recipients']").inputValue(),
+        "everyone",
+      );
+      assert.equal(await page.locator(".messages-notify input").isChecked(), false);
+      await page.locator(".messages-log article").last().waitFor();
+      await page.waitForFunction(
+        () => document.querySelector(".messages-launch")?.textContent === "Messages",
+      );
+      const sessionId = await page.evaluate(() => [...window.__office.model.sessions.keys()][0]!);
+      await page.evaluate((id) => window.__office.openSession(id), sessionId);
+      await page.locator(".poke-message").click();
+      assert.equal(
+        await page
+          .locator(".messages-panel select[aria-label='Notification recipients']")
+          .inputValue(),
+        "selected",
+      );
+      await page.getByRole("button", { name: "Add people", exact: true }).click();
+      await page.getByRole("searchbox", { name: "Find recipients" }).fill("Lena");
+      await page
+        .locator(".messages-picker label")
+        .filter({ hasText: "Lena" })
+        .getByRole("checkbox")
+        .check();
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator(".messages-panel").isVisible(), true);
+      assert.equal(await page.locator(".messages-picker").isVisible(), false);
+      // Use only history delivery: fake connectors are present but nobody's Mac is involved.
+      await page.locator(".messages-notify input").uncheck();
+      const text = page.getByRole("textbox", { name: "Office message", exact: true });
+      await text.fill(`<img src=x onerror=alert(1)> ${vp}`);
+      await text.press("Enter");
+      await text.press("End");
+      await text.press("x");
+      assert.ok((await text.inputValue()).includes("\n"));
+      await text.press("Control+Enter");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".messages-send-status")?.textContent ===
+          "Saved to office history.",
+      );
+      assert.equal(await text.inputValue(), "");
+      await page.waitForFunction(
+        () => document.querySelector(".messages-launch")?.textContent === "Messages",
+      );
+      assert.equal(await page.locator(".messages-log img").count(), 0);
+      assert.ok((await page.locator(".messages-log").textContent())?.includes("<img src=x"));
+      assert.equal(
+        historyReads,
+        0,
+        "HTTP acknowledgement + live echo must not trigger history reads",
+      );
+      // Keep the draft across card refreshes; wheel events stay inside the overlay.
+      await text.fill("Draft survives surface changes");
+      await page.evaluate((id) => window.__office.openSession(id), sessionId);
+      await page.locator(".poke-message").click();
+      assert.equal(await text.inputValue(), "Draft survives surface changes");
+      assert.equal(await page.locator(".messages-notify input").isChecked(), false);
+      if (vp === "laptop") {
+        await sleep(2100); // the existing shared viewer-IP send guard
+        // Save, lose the acknowledgement, and verify the UI warns without automatically resending.
+        let attempts = 0;
+        await page.route("**/api/messages", async (route) => {
+          if (route.request().method() !== "POST") {
+            await route.continue();
+            return;
+          }
+          attempts++;
+          await route.fetch();
+          await route.abort();
+        });
+        await text.press("Control+Enter");
+        await page.waitForFunction(() =>
+          document
+            .querySelector(".messages-send-status")
+            ?.textContent?.includes("may already be saved"),
+        );
+        assert.equal(await text.isDisabled(), false);
+        await page.unroute("**/api/messages");
+        await sleep(150);
+        assert.equal(attempts, 1);
+        const history = await (await page.request.get(`${o.http}/api/messages`)).json();
+        assert.equal(
+          history.messages.filter(
+            (m: { text: string }) => m.text === "Draft survives surface changes",
+          ).length,
+          1,
+        );
+        assert.equal(await text.inputValue(), "Draft survives surface changes");
+        await sleep(2100);
+        await text.fill("Who wants to pair after lunch?"); // A deliberate new message, not a retry.
+        await text.press("Control+Enter");
+        await page.waitForFunction(
+          () =>
+            document.querySelector(".messages-send-status")?.textContent ===
+            "Saved to office history.",
+        );
+        await text.fill("Draft survives surface changes");
+        // Restore history after a network break, with no extra alerts or duplicated rows.
+        await page.context().setOffline(true);
+        await post("Sent while this viewer was offline");
+        await page.context().setOffline(false);
+        await page.waitForFunction(() =>
+          document
+            .querySelector(".messages-log")
+            ?.textContent?.includes("Sent while this viewer was offline"),
+        );
+      }
+      const isolated = await page.evaluate(() => {
+        let heard = 0;
+        const listener = () => heard++;
+        window.addEventListener("wheel", listener);
+        document
+          .querySelector(".messages-panel")!
+          .dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+        window.removeEventListener("wheel", listener);
+        return heard;
+      });
+      assert.equal(isolated, 0);
+      const box = await page.locator(".messages-panel").boundingBox();
+      assert.ok(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= VIEWPORTS[vp].width);
+      await shoot(page, `${name}-${vp}`);
+      await text.press("Escape");
+      assert.equal(await page.locator(".messages-panel").isVisible(), false);
+      await page.reload();
+      await page.waitForFunction(() => window.__office?.ready);
+      assert.equal(await page.locator(".messages-panel").isVisible(), false);
+      await launcher.click();
+      const deleteButton = page
+        .getByRole("button", { name: "Delete your message", exact: true })
+        .last();
+      await deleteButton.waitFor();
+      const deletedId = await deleteButton.locator("..").getAttribute("data-message-id");
+      assert.ok(deletedId);
+      page.once("dialog", (dialog) => void dialog.accept());
+      await deleteButton.click();
+      await page.locator(`article[data-message-id="${deletedId}"]`).waitFor({ state: "detached" });
+      const afterDelete = await (await page.request.get(`${o.http}/api/messages`)).json();
+      assert.equal(
+        afterDelete.messages.some((m: { id: string }) => m.id === deletedId),
+        false,
+      );
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    const mobile = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      serviceWorkers: "block",
+      extraHTTPHeaders: { authorization: `Bearer ${PASSWORD}` },
+    });
+    try {
+      const page = await mobile.newPage();
+      await page.goto(o.http);
+      await page.waitForFunction(() => window.__office?.ready);
+      await page.locator(".messages-launch").tap();
+      const id = await page.evaluate(() => [...window.__office.model.sessions.keys()][0]!);
+      await page.evaluate((session) => window.__office.openSession(session), id);
+      assert.equal(await page.locator(".messages-panel").isVisible(), false);
+      await page.locator(".poke-message").tap();
+      assert.equal(await page.locator(".hud-panel").isVisible(), false);
+      assert.equal(await page.locator(".messages-panel").isVisible(), true);
+      await page.getByRole("textbox", { name: "Office message", exact: true }).fill("Touch draft");
+      await shoot(page, `${name}-phone`);
+      await page.setViewportSize({ width: 390, height: 420 });
+      await page.locator(".messages-panel.messages-keyboard").waitFor();
+      const keyboardBox = await page.locator(".messages-panel").boundingBox();
+      assert.ok(keyboardBox && keyboardBox.y >= 0 && keyboardBox.y + keyboardBox.height <= 420);
+      assert.equal(await page.locator(".messages-privacy").isVisible(), true);
+      assert.equal(await page.locator(".messages-send-row").isVisible(), true);
+      await shoot(page, `${name}-phone-keyboard`);
+      await page.getByRole("textbox", { name: "Office message", exact: true }).press("Escape");
+      assert.equal(
+        await page.locator(".messages-launch").evaluate((el) => el === document.activeElement),
+        true,
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      const demoRequests: string[] = [];
+      page.on("request", (request) => {
+        if (/\/api\/messages|\/api\/interact/.test(request.url())) demoRequests.push(request.url());
+      });
+      page.on("websocket", (socket) => demoRequests.push(socket.url()));
+      await page.goto(`${o.http}/?demo=busy`);
+      await page.waitForFunction(() => window.__office?.ready);
+      await page.locator(".messages-launch").tap();
+      const demoText = page.getByRole("textbox", { name: "Office message", exact: true });
+      await demoText.fill("Local demo message");
+      await demoText.press("Control+Enter");
+      await page.waitForFunction(() =>
+        document
+          .querySelector(".messages-send-status")
+          ?.textContent?.includes("Saved in this demo"),
+      );
+      assert.deepEqual(demoRequests, []);
+      for (const query of ["?kiosk=1", "?nohud=1"]) {
+        await page.goto(`${o.http}/${query}`);
+        await page.waitForFunction(() => window.__office?.ready);
+        assert.equal(await page.locator(".messages-launch").count(), 0);
+        assert.equal(await page.locator(".messages-panel").count(), 0);
+      }
+    } finally {
+      await mobile.close();
+    }
+    await checkMessageReloadGuard(o.http);
+    log(
+      "  message checks: zero live/tab history reads, browser-owned deletion after reload, history/unread, selection, plain text, lost-ack warning without resend, recovery, keyboard, draft/pending release guard, touch, demo and kiosk/nohud passed",
+    );
+  } finally {
+    o.stop();
+  }
+}
+
 // ---- main -------------------------------------------------------------------------------------
+
+/** [seconds a scene took in CI, scene]: `--shard` balances by these */
+const SCENES: readonly [number, () => Promise<void>][] = [
+  [18, () => sceneSimple("01-empty", "empty", "hour=14", { people: 0, sessions: 0 })],
+  [
+    20,
+    () =>
+      sceneSimple("02-one-typing", "one", "hour=14&zoom=4", { people: 1, sessions: 1 }, 2500, {
+        person: "anna",
+        zoom: 4,
+      }),
+  ],
+  [20, () => sceneSimple("03-busy", "busy", "hour=15", BUSY, 3500)],
+  [30, busyGif],
+  [32, sceneJoined],
+  [23, () => sceneSimple("05-kiosk", "busy", "kiosk=1&hour=16", BUSY, 5000)],
+  [18, () => sceneSimple("06-zoomed-out", "busy", "zoom=fit&hour=13", BUSY, 3000)],
+  [4, sceneStats],
+  [60, sceneTimelapse],
+  [26, sceneSidePanel],
+  [52, sceneAgentCard],
+  [110, sceneMessages],
+  [25, sceneOfficeLife],
+  [18, sceneCleared],
+  [162, sceneBarAndShop],
+  [13, sceneTerminal],
+  [44, sceneDetailedLook],
+  [5, sceneLookGallery],
+];
+
+/** Greedy split: the longest scene goes to the shard with the least work so far. */
+function shardOf(weights: readonly number[], shards: number): number[] {
+  const load = Array<number>(shards).fill(0);
+  const out = Array<number>(weights.length).fill(0);
+  const order = weights.map((w, i) => [w, i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (const [w, i] of order) {
+    const s = load.indexOf(Math.min(...load));
+    out[i] = s;
+    load[s] = load[s]! + w;
+  }
+  return out;
+}
+
+const SHARDS = SHARD
+  ? shardOf(
+      SCENES.map(([w]) => w),
+      SHARD.of,
+    )
+  : null;
+const inShard = (i: number) => !SHARDS || !SHARD || SHARDS[i] === SHARD.index - 1;
 
 function cleanup() {
   for (const p of servers) p.kill();
@@ -685,43 +1173,35 @@ async function main() {
     args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
   });
   try {
-    await sceneSimple("01-empty", "empty", "hour=14", { people: 0, sessions: 0 });
-    await sceneSimple("02-one-typing", "one", "hour=14&zoom=4", { people: 1, sessions: 1 }, 2500, {
-      person: "anna",
-      zoom: 4,
-    });
-    await sceneSimple("03-busy", "busy", "hour=15", BUSY, 3500);
-    await busyGif();
-    await sceneJoined();
-    await sceneSimple("05-kiosk", "busy", "kiosk=1&hour=16", BUSY, 5000);
-    await sceneSimple("06-zoomed-out", "busy", "zoom=fit&hour=13", BUSY, 3000);
-    await sceneStats();
-    await sceneTimelapse();
-    await sceneSidePanel();
-    await sceneAgentCard();
-    await sceneOfficeLife();
-    await sceneCleared();
-    await sceneTerminal();
+    for (const [, run] of SCENES.filter((_, i) => inShard(i))) await run();
   } finally {
     await browser.close();
     cleanup();
   }
-  if (!ONLY) rmSync(join(OUT, "dev"), { recursive: true, force: true });
+  if (!ONLY && !SHARD) rmSync(join(OUT, "dev"), { recursive: true, force: true });
   log(`done: ${shots.length} files in ${OUT}`);
 }
 
 declare global {
   interface Window {
+    /** set by the `?gallery=look` dev page once every sheet is drawn */
+    __galleryReady?: boolean;
     __office: {
       ready: boolean;
       fps(): number;
-      model: { people: Map<string, unknown>; sessions: Map<string, unknown> };
+      model: {
+        people: Map<string, unknown>;
+        sessions: Map<string, unknown>;
+        games: { id: string }[];
+      };
       camera: {
         zoomToFit(): void;
         focusArea(name: string): void;
+        lookAt(tileX: number, tileY: number, zoom: number): void;
         focusPerson(personId: string, zoom?: number): boolean;
       };
       snapshotPng(): Promise<string | null>;
+      openPerson(personId: string): void;
       injectEvent(msg: unknown): boolean;
       openSession(sessionId: string): boolean;
       setSpeed(k: number): void;

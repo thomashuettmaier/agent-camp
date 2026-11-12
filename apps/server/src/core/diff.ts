@@ -6,9 +6,10 @@
  *   1. session.ended        (sessions that disappeared, incl. those of leaving people)
  *   2. person.left          (after all of that person's session.ended)
  *   3. person.joined        (person carries `sessions: []`; sessions follow as session.started)
- *   4. avatar.updated       (people present in both states whose look changed)
+ *   4. avatar.updated       (people present in both states whose look changed), then
+ *      person.birthdayChanged / person.helpersChanged / gif.updated
  *   5. session.started
- *   6. session.activityChanged
+ *   6. session.activityChanged, session.contextChanged, session.connectionChanged
  *   7. subagent.spawned / subagent.finished (one event per unit, with the running count)
  */
 import {
@@ -58,8 +59,39 @@ export function diff(prev: OfficeState, next: OfficeState, ts: number = Date.now
     const p = prevPeople.get(n.personId);
     if (!p) {
       joined.push(envelope("person.joined", { person: { ...n, sessions: [] } }, { ts }));
-    } else if (!sameAvatar(p.avatar, n.avatar)) {
-      avatars.push(envelope("avatar.updated", { personId: n.personId, avatar: n.avatar }, { ts }));
+    } else {
+      if (!sameAvatar(p.avatar, n.avatar)) {
+        avatars.push(
+          envelope("avatar.updated", { personId: n.personId, avatar: n.avatar }, { ts }),
+        );
+      }
+      if (p.gif !== n.gif) {
+        avatars.push(
+          envelope(
+            "gif.updated",
+            { personId: n.personId, ...(n.gif ? { gif: n.gif } : {}) },
+            { ts },
+          ),
+        );
+      }
+    }
+    if (p && !!p.birthday !== !!n.birthday) {
+      avatars.push(
+        envelope(
+          "person.birthdayChanged",
+          { personId: n.personId, birthday: !!n.birthday },
+          { ts },
+        ),
+      );
+    }
+    if (p && (p.helpers ?? "robots") !== (n.helpers ?? "robots")) {
+      avatars.push(
+        envelope(
+          "person.helpersChanged",
+          { personId: n.personId, helpers: n.helpers ?? "robots" },
+          { ts },
+        ),
+      );
     }
     const prevSessions = byId<SessionView, string>(p?.sessions ?? [], (s) => s.sessionId);
     for (const s of n.sessions) {
@@ -78,6 +110,24 @@ export function diff(prev: OfficeState, next: OfficeState, ts: number = Date.now
               activity: s.activity,
               previous: old.activity,
             },
+            { ts },
+          ),
+        );
+      }
+      if (old.context !== s.context) {
+        activity.push(
+          envelope(
+            "session.contextChanged",
+            { personId: n.personId, sessionId: s.sessionId, context: s.context ?? null },
+            { ts },
+          ),
+        );
+      }
+      if (!!old.offline !== !!s.offline) {
+        activity.push(
+          envelope(
+            "session.connectionChanged",
+            { personId: n.personId, sessionId: s.sessionId, offline: !!s.offline },
             { ts },
           ),
         );
@@ -124,6 +174,27 @@ export function applyEvents(state: OfficeState, events: readonly ViewerEvent[]):
         if (p) p.avatar = e.data.avatar;
         break;
       }
+      case "gif.updated": {
+        const p = people.get(e.data.personId);
+        if (!p) break;
+        if (e.data.gif) p.gif = e.data.gif;
+        else delete p.gif;
+        break;
+      }
+      case "person.birthdayChanged": {
+        const p = people.get(e.data.personId);
+        if (!p) break;
+        if (e.data.birthday) p.birthday = true;
+        else delete p.birthday;
+        break;
+      }
+      case "person.helpersChanged": {
+        const p = people.get(e.data.personId);
+        if (!p) break;
+        if (e.data.helpers === "robots") delete p.helpers;
+        else p.helpers = e.data.helpers;
+        break;
+      }
       case "session.started": {
         const p = people.get(e.data.personId);
         if (p) p.sessions.push(e.data.session);
@@ -143,6 +214,16 @@ export function applyEvents(state: OfficeState, events: readonly ViewerEvent[]):
       case "subagent.spawned":
       case "subagent.finished":
         withSession(e.data.personId, e.data.sessionId, (s) => ({ ...s, subagents: e.data.count }));
+        break;
+      case "session.contextChanged":
+        withSession(e.data.personId, e.data.sessionId, ({ context: _c, ...s }) =>
+          e.data.context === null ? s : { ...s, context: e.data.context },
+        );
+        break;
+      case "session.connectionChanged":
+        withSession(e.data.personId, e.data.sessionId, ({ offline: _o, ...s }) =>
+          e.data.offline ? { ...s, offline: true } : s,
+        );
         break;
     }
   }

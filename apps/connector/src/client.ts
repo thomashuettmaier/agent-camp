@@ -17,6 +17,8 @@ import {
 import type { Logger } from "./log.ts";
 
 export type Welcomed = MessageData<"connector.welcomed">;
+export type Poked = MessageData<"connector.poked">;
+export type LookRequested = MessageData<"connector.lookRequested">;
 
 export type ClientOptions = {
   /** server base URL (http(s)/ws(s), with or without the /ws/connector path) */
@@ -24,6 +26,10 @@ export type ClientOptions = {
   hello: () => MessageData<"connector.hello">;
   log: Logger;
   onWelcomed?: (data: Welcomed) => void;
+  /** someone in the office waved at / messaged this person */
+  onPoked?: (data: Poked) => void;
+  /** the office asks this Mac to draw the person's look with its local AI tool */
+  onLookRequested?: (data: LookRequested) => void;
   /** connection state changes (for the status file) */
   onState?: (state: { connected: boolean; welcomed: boolean; error?: string }) => void;
   /** the server closed with 4002 (too old) */
@@ -127,6 +133,12 @@ export class ConnectorClient {
           this.opts.onWelcomed?.(msg.data);
           break;
         }
+        case "connector.poked":
+          if (this._welcomed) this.opts.onPoked?.(msg.data);
+          break;
+        case "connector.lookRequested":
+          if (this._welcomed) this.opts.onLookRequested?.(msg.data);
+          break;
         case "connector.rejected":
           this.lastCloseInfo = `${msg.data.reason}${msg.data.message ? `: ${msg.data.message}` : ""}`;
           this.opts.log(`rejected by server: ${this.lastCloseInfo}`);

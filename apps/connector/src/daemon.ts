@@ -6,16 +6,28 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   DETECT_POLL_MS,
+  envelope,
   HEARTBEAT_MS,
+  type MessageData,
   type SessionInfo,
   SNAPSHOT_DEBOUNCE_MS,
 } from "@agent-office/protocol";
-import { type ClientOptions, ConnectorClient, type Welcomed } from "./client.ts";
+import {
+  type ClientOptions,
+  ConnectorClient,
+  type LookRequested,
+  type Welcomed,
+} from "./client.ts";
+import type { DesignWatchStatus } from "./desktop.ts";
 import { snapshotKey } from "./detect/index.ts";
 import type { Logger } from "./log.ts";
 import { isNewer, type Updater } from "./update.ts";
 
-export type Poller = { poll(): Promise<SessionInfo[]> };
+export type Poller = {
+  poll(): Promise<SessionInfo[]>;
+  /** state of the Claude Design watch; undefined when it is off */
+  readonly designStatus?: DesignWatchStatus | undefined;
+};
 
 export type DaemonOptions = {
   server: string;
@@ -29,6 +41,11 @@ export type DaemonOptions = {
   pollMs?: number;
   debounceMs?: number;
   heartbeatMs?: number;
+  onPoked?: ClientOptions["onPoked"];
+  /** draws looks with a local AI tool when the office asks (see lookgen.ts) */
+  looks?: { generate(req: LookRequested): Promise<MessageData<"connector.lookGenerated">> };
+  /** for `agent-office status`: which local AI draws the look ("off" when none) */
+  looksLabel?: string;
   client?: Partial<ClientOptions>;
 };
 
@@ -42,10 +59,21 @@ export type StatusFile = {
   personId?: string;
   lastError?: string;
   updatedAt: number;
+  /** local AI that draws the look, e.g. "claude (/Users/x/.local/bin/claude)" or "off" */
+  looks?: string;
+  /** Claude Design watch (only with `claude_app = "design"`) */
+  designWindow?: DesignWatchStatus;
   sessions: Omit<SessionInfo, "sessionKey">[];
 };
 
-const label = (s: SessionInfo) => `${s.agent} ${s.project ?? "(hidden)"}`;
+/** What the Claude Design watch states mean, for the log and `agent-office status`. */
+export const DESIGN_STATUS_TEXT: Record<DesignWatchStatus, string> = {
+  watching: "on: your Claude app counts as Claude Design",
+  error: "on, but macOS did not say which app is in front (will retry)",
+};
+
+const label = (s: SessionInfo) =>
+  s.agent === "design" ? "design (Claude app)" : `${s.agent} ${s.project ?? "(hidden)"}`;
 
 /** Human-readable change lines between two snapshots. */
 export function describeChanges(prev: SessionInfo[], next: SessionInfo[]): string[] {
@@ -74,6 +102,9 @@ export class Daemon {
   private lastSentKey = "";
   private blocked = false;
   private stopped = false;
+  /** a drawn look that could not be sent (connection dropped meanwhile): sent on the next welcome */
+  private unsentLook: MessageData<"connector.lookGenerated"> | null = null;
+  private designStatus: DesignWatchStatus | undefined;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -88,6 +119,8 @@ export class Daemon {
       hello: opts.hello,
       log: opts.log,
       onWelcomed: (w) => this.onWelcomed(w),
+      ...(opts.onPoked ? { onPoked: opts.onPoked } : {}),
+      ...(opts.looks ? { onLookRequested: (r: LookRequested) => void this.drawLook(r) } : {}),
       onState: (s) => {
         this.state = {
           ...this.state,
@@ -134,6 +167,11 @@ export class Daemon {
     } catch (e) {
       this.opts.log(`poll error: ${(e as Error).message}`);
     }
+    const design = this.opts.detector.designStatus;
+    if (design !== this.designStatus) {
+      this.designStatus = design;
+      if (design) this.opts.log(`claude app: ${DESIGN_STATUS_TEXT[design]}`);
+    }
     this.writeStatus();
     if (!this.stopped) {
       this.pollTimer = setTimeout(() => void this.tick(), this.opts.pollMs ?? DETECT_POLL_MS);
@@ -155,6 +193,18 @@ export class Daemon {
     if (this.client.sendSnapshot(this.sessions)) this.lastSentKey = this.lastKey;
   }
 
+  /** Draw the look the office asked for and send it back (or keep it for the next welcome). */
+  private async drawLook(req: LookRequested): Promise<void> {
+    const looks = this.opts.looks;
+    if (!looks || this.stopped) return;
+    const answer = await looks.generate(req);
+    if (this.stopped) return;
+    if (!this.client.send(envelope("connector.lookGenerated", answer))) {
+      this.opts.log("look: not connected, sending it once the office is back");
+      this.unsentLook = answer;
+    }
+  }
+
   private onWelcomed(w: Welcomed): void {
     this.state.personId = w.personId;
     const up = this.opts.updater;
@@ -168,6 +218,8 @@ export class Daemon {
       return;
     }
     this.blocked = false;
+    if (this.unsentLook && this.client.send(envelope("connector.lookGenerated", this.unsentLook)))
+      this.unsentLook = null;
     if (up && isNewer(w.latestConnectorVersion, this.opts.version)) {
       void up.maybeUpdate(w.latestConnectorVersion, "server announced");
     }
@@ -187,8 +239,11 @@ export class Daemon {
       personId: this.state.personId,
       lastError: this.state.error,
       updatedAt: Date.now(),
+      ...(this.opts.looksLabel ? { looks: this.opts.looksLabel } : {}),
       sessions: this.sessions.map(({ sessionKey: _k, ...rest }) => rest),
     };
+    const design = this.opts.detector.designStatus;
+    if (design) status.designWindow = design;
     try {
       mkdirSync(dirname(file), { recursive: true });
       const tmp = `${file}.tmp`;

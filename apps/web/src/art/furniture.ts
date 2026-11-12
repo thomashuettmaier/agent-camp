@@ -4,8 +4,10 @@
  */
 import { Rectangle, Texture } from "pixi.js";
 import type { ObjectKind } from "../world/map.ts";
+import { drawText, measureText } from "./font.ts";
 import { C } from "./palette.ts";
 import { PixelCanvas } from "./pixel.ts";
+import { artSeason, foliage } from "./seasons.ts";
 
 type Art = {
   w: number;
@@ -430,19 +432,51 @@ export const ART: Partial<Record<ObjectKind, Art>> = {
     frames: 2,
     dy: 2,
     draw(pc, v, f) {
-      pc.ellipse(4, 40, 28, 8, C.forest, 255);
+      const winter = artSeason() === "winter";
+      pc.ellipse(4, 40, 28, 8, winter ? C.silver : C.forest, 255);
       pc.rect(15, 28, 6, 16, C.bark);
       pc.vline(16, 28, 15, C.wood);
       const s = f;
-      const dark = v === 1 ? C.pine : C.forest;
-      const mid = v === 1 ? C.forest : C.moss;
-      const lt = v === 1 ? C.moss : C.leaf;
+      if (winter) {
+        // bare crown: trunk forks into branches, snow on the upper sides
+        pc.rect(16, 10, 4, 20, C.bark);
+        const branches = [
+          [17, 22, -1, 10],
+          [19, 18, 1, 11],
+          [17, 14, -1, 8],
+          [19, 11, 1, 7],
+          [18, 9, 0, 6],
+        ] as const;
+        for (const [x0, y0, dir, len] of branches) {
+          for (let i = 0; i < len; i++) {
+            const x = x0 + dir * i + (dir === 0 ? 0 : s);
+            const y = y0 - Math.floor(i * (dir === 0 ? 1 : 0.6));
+            pc.set(x, y, C.cocoa);
+            if (i % 2 === 1) pc.set(x, y - 1, C.white);
+          }
+        }
+        return;
+      }
+      const fol = foliage(v);
+      const dark = fol?.dark ?? (v === 1 ? C.pine : C.forest);
+      const mid = fol?.mid ?? (v === 1 ? C.forest : C.moss);
+      const lt = fol?.light ?? (v === 1 ? C.moss : C.leaf);
       pc.ellipse(2 + s, 8, 32, 26, dark);
       pc.ellipse(4 + s, 4, 28, 24, mid);
       pc.ellipse(8 + s, 2, 18, 16, lt);
       pc.ellipse(10 + s, 4, 6, 4, C.lemon, 255);
       pc.ellipse(20 + s, 18, 10, 8, mid);
-      if (v === 1) {
+      if (fol?.dot) {
+        for (const [x, y] of [
+          [9, 10],
+          [22, 7],
+          [15, 18],
+          [26, 15],
+          [7, 20],
+          [18, 4],
+        ] as const)
+          pc.set(x + s, y, fol.dot);
+      } else if (v === 1) {
         pc.set(10 + s, 14, C.red);
         pc.set(22 + s, 9, C.red);
         pc.set(17 + s, 21, C.red);
@@ -561,9 +595,12 @@ export const ART: Partial<Record<ObjectKind, Art>> = {
     h: 16,
     dy: 1,
     draw(pc, v) {
-      pc.ellipse(0, 2, 16, 14, C.forest);
-      pc.ellipse(1, 1, 13, 11, C.moss);
-      pc.ellipse(3, 2, 7, 5, C.leaf);
+      const season = artSeason();
+      const fol = foliage(v);
+      pc.ellipse(0, 2, 16, 14, fol?.dark ?? C.forest);
+      pc.ellipse(1, 1, 13, 11, fol?.mid ?? C.moss);
+      pc.ellipse(3, 2, 7, 5, season === "winter" ? C.white : (fol?.light ?? C.leaf));
+      if (season === "winter") pc.hline(2, 1, 11, C.white);
       if (v === 1) {
         pc.set(4, 8, C.pink);
         pc.set(10, 5, C.pink);
@@ -573,6 +610,470 @@ export const ART: Partial<Record<ObjectKind, Art>> = {
         pc.set(5, 7, C.red);
         pc.set(11, 9, C.red);
       }
+    },
+  },
+  // ---- bar ------------------------------------------------------------------------------
+  barCounter: {
+    w: 96,
+    h: 26,
+    dy: 2,
+    draw(pc) {
+      pc.rect(0, 0, 96, 8, C.wood); // polished top
+      pc.hline(0, 0, 96, C.tan);
+      pc.hline(2, 2, 92, C.sand);
+      pc.rect(0, 8, 96, 16, C.cocoa); // panelled front
+      for (let x = 4; x < 92; x += 16) {
+        pc.rect(x, 11, 12, 10, C.bark);
+        pc.hline(x, 11, 12, C.wood);
+      }
+      pc.hline(0, 21, 96, C.amber); // brass foot rail
+      pc.hline(0, 22, 96, C.orange);
+      pc.rect(0, 23, 96, 1, C.night);
+      // glasses and a beer mat on the counter
+      pc.rect(14, 2, 3, 4, C.white);
+      pc.rect(14, 3, 3, 3, C.amber);
+      pc.rect(58, 3, 5, 3, C.red);
+      pc.rect(59, 1, 3, 4, C.cyan);
+      pc.rect(82, 2, 3, 4, C.white);
+      pc.rect(82, 4, 3, 2, C.amber);
+    },
+  },
+  barBack: {
+    w: 16,
+    h: 24,
+    draw(pc) {
+      pc.rect(0, 0, 16, 8, C.bark);
+      pc.hline(0, 0, 16, C.wood);
+      pc.rect(0, 8, 16, 15, C.cocoa);
+      pc.vline(8, 9, 13, C.night);
+      pc.set(6, 15, C.amber);
+      pc.set(10, 15, C.amber);
+      pc.hline(0, 22, 16, C.night);
+    },
+    outline: false,
+  },
+  beerTap: {
+    w: 14,
+    h: 14,
+    dy: -17,
+    z: 20,
+    draw(pc) {
+      pc.rect(1, 2, 12, 3, C.amber); // tap bar
+      pc.hline(1, 2, 12, C.lemon);
+      for (const x of [2, 6, 10]) {
+        pc.rect(x, 0, 2, 2, [C.red, C.lemon, C.navy][x % 3]!); // handles
+        pc.vline(x + 1, 5, 3, C.silver);
+      }
+      pc.rect(1, 11, 12, 2, C.silver); // drip tray
+      pc.rect(5, 8, 3, 4, C.white);
+      pc.rect(5, 9, 3, 3, C.amber);
+    },
+  },
+  barStool: {
+    w: 10,
+    h: 16,
+    draw(pc, v) {
+      pc.vline(3, 5, 10, C.amber);
+      pc.vline(6, 5, 10, C.amber);
+      pc.hline(2, 10, 6, C.orange);
+      pc.ellipse(0, 0, 10, 6, v ? C.wine : C.cocoa);
+      pc.hline(2, 1, 6, v ? C.red : C.wood);
+    },
+  },
+  bottleShelf: {
+    w: 48,
+    h: 38,
+    draw(pc) {
+      pc.rect(0, 0, 48, 37, C.cocoa);
+      pc.rect(0, 0, 48, 2, C.bark);
+      const bottles = [C.moss, C.amber, C.wine, C.sky, C.leaf, C.clay, C.white, C.orange];
+      for (let shelf = 0; shelf < 3; shelf++) {
+        const y = 3 + shelf * 11;
+        pc.rect(2, y, 44, 9, C.night);
+        for (let i = 0; i < 9; i++) {
+          const x = 4 + i * 5;
+          const c = bottles[(i * 3 + shelf * 5) % bottles.length]!;
+          const h = 6 + ((i + shelf) % 2);
+          pc.rect(x, y + 9 - h + 2, 3, h - 2, c);
+          pc.rect(x + 1, y + 9 - h, 1, 2, c);
+          pc.set(x, y + 9 - h + 3, C.white);
+        }
+        pc.hline(1, y + 9, 46, C.bark);
+      }
+      pc.rect(0, 35, 48, 2, C.bark);
+    },
+  },
+  standingTable: {
+    w: 14,
+    h: 24,
+    draw(pc) {
+      pc.ellipse(4, 21, 7, 3, C.ink);
+      pc.vline(7, 6, 16, C.ink);
+      pc.vline(6, 6, 16, C.slate);
+      pc.ellipse(0, 0, 14, 7, C.bark);
+      pc.ellipse(1, 0, 12, 5, C.wood);
+      pc.rect(3, -1, 2, 3, C.amber); // a beer and a candle
+      pc.set(3, -2, C.white);
+      pc.set(4, -2, C.white);
+      pc.set(9, 1, C.cream);
+      pc.set(9, 0, C.lemon);
+    },
+  },
+  neonBeer: {
+    w: 48,
+    h: 14,
+    dy: -13,
+    z: -1000,
+    frames: 2,
+    outline: false,
+    draw(pc, _v, f) {
+      const on = f === 1;
+      pc.rect(0, 0, 48, 14, C.night);
+      pc.rect(1, 1, 46, 12, C.ink);
+      // a mug + "BAR"
+      const m = on ? C.amber : C.cocoa;
+      const foam = on ? C.white : C.slate;
+      pc.rect(4, 4, 7, 2, foam);
+      pc.rect(4, 6, 7, 5, m);
+      pc.vline(11, 6, 3, m);
+      pc.set(12, 6, m);
+      pc.set(12, 8, m);
+      drawText(pc, 17, 5, "BAR", on ? C.pink : C.plum);
+      pc.hline(17, 11, 26, on ? C.neon : C.wine);
+    },
+  },
+  // ---- weed shop + smokers' corner ----------------------------------------------------------
+  shopCounter: {
+    w: 48,
+    h: 26,
+    dy: 2,
+    draw(pc) {
+      pc.rect(0, 2, 48, 8, C.white);
+      pc.hline(0, 2, 48, C.silver);
+      pc.rect(0, 10, 48, 14, C.forest);
+      for (let x = 2; x < 46; x += 4) pc.vline(x, 12, 10, C.pine);
+      pc.hline(0, 23, 48, C.night);
+      // till, a jar and a little leaf sticker
+      pc.rect(30, -2, 12, 9, C.slate);
+      pc.rect(31, -1, 10, 3, C.ink);
+      pc.hline(32, 0, 6, C.leaf);
+      pc.rect(32, 4, 8, 2, C.grey);
+      pc.rect(8, 1, 5, 6, C.cyan);
+      pc.rect(9, 0, 3, 1, C.leaf);
+      pc.rect(9, 3, 3, 3, C.moss);
+      pc.set(22, 16, C.leaf);
+      pc.set(21, 15, C.leaf);
+      pc.set(23, 15, C.leaf);
+      pc.set(22, 14, C.leaf);
+      pc.set(22, 17, C.moss);
+    },
+  },
+  jarShelf: {
+    w: 48,
+    h: 36,
+    draw(pc, v) {
+      pc.rect(0, 0, 48, 35, v ? C.sand : C.tan);
+      pc.rect(0, 0, 48, 2, C.wood);
+      const lids = [C.leaf, C.moss, C.lemon, C.amber, C.pine];
+      for (let shelf = 0; shelf < 3; shelf++) {
+        const y = 3 + shelf * 11;
+        pc.rect(2, y, 44, 9, C.cream);
+        for (let i = 0; i < 6; i++) {
+          const x = 4 + i * 7;
+          pc.rect(x, y + 3, 5, 6, C.cyan); // glass
+          pc.rect(x + 1, y + 5, 3, 4, (i + shelf + v) % 3 ? C.moss : C.leaf); // buds
+          pc.rect(x, y + 2, 5, 1, lids[(i + shelf * 2 + v) % lids.length]!);
+          pc.set(x + 3, y + 4, C.white);
+        }
+        pc.hline(1, y + 9, 46, C.wood);
+      }
+    },
+  },
+  greenCross: {
+    w: 14,
+    h: 14,
+    dy: -13,
+    z: -1000,
+    frames: 2,
+    outline: false,
+    draw(pc, _v, f) {
+      const on = f === 1;
+      const c = on ? C.leaf : C.forest;
+      pc.rect(0, 0, 14, 14, C.night);
+      pc.rect(5, 2, 4, 10, c);
+      pc.rect(2, 5, 10, 4, c);
+      if (on) {
+        pc.vline(6, 3, 8, C.lemon);
+        pc.hline(3, 6, 8, C.lemon);
+      }
+    },
+  },
+  openSign: {
+    w: 30,
+    h: 11,
+    dy: -13,
+    z: -1000,
+    frames: 2,
+    outline: false,
+    draw(pc, _v, f) {
+      const open = f === 1;
+      const text = open ? "OPEN" : "CLOSED";
+      pc.rect(0, 0, 30, 11, C.night);
+      pc.rect(1, 1, 28, 9, open ? C.ink : C.cocoa);
+      drawText(pc, Math.floor((30 - measureText(text)) / 2), 3, text, open ? C.leaf : C.red);
+    },
+  },
+  ashtray: {
+    w: 10,
+    h: 20,
+    draw(pc) {
+      pc.ellipse(2, 17, 7, 3, C.ink);
+      pc.rect(3, 4, 4, 14, C.grey);
+      pc.vline(6, 4, 14, C.slate);
+      pc.ellipse(0, 0, 10, 5, C.silver);
+      pc.ellipse(2, 1, 6, 3, C.slate);
+      pc.set(3, 1, C.white); // butts
+      pc.set(6, 2, C.cream);
+      pc.set(7, 2, C.orange);
+    },
+  },
+  // ---- the two residents without an agent ------------------------------------------------
+  stove: {
+    w: 16,
+    h: 24,
+    frames: 2,
+    outline: false,
+    draw(pc, _v, f) {
+      pc.rect(0, 0, 16, 8, C.silver);
+      pc.rect(1, 1, 14, 6, C.ink);
+      pc.ellipse(2, 2, 6, 4, C.slate);
+      pc.ellipse(9, 2, 6, 4, f ? C.orange : C.red);
+      pc.set(11, 3, f ? C.lemon : C.amber);
+      pc.ellipse(1, 0, 8, 5, C.slate);
+      pc.ellipse(2, 1, 6, 3, C.cream);
+      pc.set(4, 1, f ? C.amber : C.lemon);
+      pc.set(5, 2, C.lemon);
+      pc.hline(9, 2, 4, C.bark);
+      pc.rect(0, 8, 16, 15, C.silver);
+      pc.rect(2, 11, 12, 8, C.grey);
+      pc.rect(3, 12, 10, 6, C.ink);
+      pc.hline(3, 12, 10, f ? C.orange : C.wine);
+      pc.hline(4, 10, 8, C.slate);
+      pc.vline(15, 8, 15, C.grey);
+      pc.hline(0, 22, 16, C.bark);
+    },
+  },
+  headDesk: {
+    w: 48,
+    h: 30,
+    dy: 2,
+    draw(pc) {
+      pc.rect(0, 0, 48, 13, C.wood);
+      pc.hline(0, 0, 48, C.tan);
+      pc.rect(0, 13, 48, 13, C.bark);
+      pc.hline(0, 13, 48, C.cocoa);
+      pc.rect(2, -8, 13, 10, C.ink);
+      pc.rect(7, 2, 3, 2, C.slate);
+      pc.rect(36, 3, 8, 6, C.white);
+      pc.hline(37, 5, 6, C.silver);
+      pc.hline(37, 7, 6, C.silver);
+      pc.rect(37, 1, 6, 3, C.cream);
+      pc.rect(29, 4, 3, 4, C.red);
+      pc.rect(28, 8, 5, 1, C.ink);
+      pc.rect(1, 16, 46, 8, C.amber);
+      pc.hline(1, 23, 46, C.orange);
+      drawText(pc, Math.floor((48 - measureText("HEAD OF DEV")) / 2), 18, "HEAD OF DEV", C.cocoa);
+      pc.rect(1, 26, 3, 4, C.night);
+      pc.rect(44, 26, 3, 4, C.night);
+    },
+  },
+  timeClock: {
+    w: 12,
+    h: 18,
+    dy: -3,
+    z: -1000,
+    frames: 2,
+    draw(pc, _v, f) {
+      pc.rect(0, 0, 12, 18, C.slate);
+      pc.rect(1, 1, 10, 16, C.grey);
+      pc.ellipse(2, 2, 8, 8, C.white);
+      pc.set(6, 3, C.ink);
+      pc.set(6, 4, C.ink);
+      pc.set(6, 5, C.ink);
+      pc.set(f ? 7 : 5, f ? 6 : 5, C.red);
+      pc.rect(3, 11, 6, 2, C.ink);
+      pc.rect(4, 8, 4, 4, C.cream);
+      pc.hline(4, 9, 4, C.red);
+      pc.rect(2, 14, 2, 2, f ? C.neon : C.forest);
+      pc.rect(8, 14, 2, 2, C.red);
+    },
+  },
+  salesStand: {
+    w: 32,
+    h: 28,
+    dy: 2,
+    draw(pc) {
+      pc.rect(0, 0, 32, 8, C.tan);
+      pc.hline(0, 0, 32, C.sand);
+      pc.hline(0, 7, 32, C.wood);
+      pc.rect(20, -4, 9, 8, C.slate);
+      pc.rect(21, -3, 7, 3, C.ink);
+      pc.hline(22, -2, 4, C.neon);
+      pc.rect(3, 2, 5, 4, C.white);
+      pc.rect(5, 1, 5, 4, C.sky);
+      pc.hline(6, 2, 3, C.white);
+      pc.ellipse(13, 2, 4, 3, C.amber);
+      pc.set(14, 1, C.lemon);
+      for (let x = 0; x < 32; x += 4) {
+        pc.rect(x, 8, 2, 16, C.red);
+        pc.rect(x + 2, 8, 2, 16, C.white);
+      }
+      pc.rect(4, 11, 24, 9, C.navy);
+      drawText(pc, Math.floor((32 - measureText("DEALS")) / 2), 13, "DEALS", C.lemon);
+      pc.hline(0, 23, 32, C.wine);
+      pc.rect(1, 24, 2, 4, C.bark);
+      pc.rect(29, 24, 2, 4, C.bark);
+    },
+  },
+  cfoDesk: {
+    w: 32,
+    h: 30,
+    dy: 2,
+    draw(pc) {
+      pc.rect(0, 0, 32, 13, C.wood);
+      pc.hline(0, 0, 32, C.tan);
+      pc.rect(0, 13, 32, 13, C.bark);
+      pc.hline(0, 13, 32, C.cocoa);
+      // monitor (back to the room), paper stacks that never get smaller
+      pc.rect(10, -8, 12, 10, C.ink);
+      pc.rect(14, 2, 4, 2, C.slate);
+      pc.rect(1, -3, 7, 8, C.white);
+      pc.hline(1, -1, 7, C.silver);
+      pc.hline(1, 1, 7, C.silver);
+      pc.hline(1, 3, 7, C.silver);
+      pc.rect(2, -5, 6, 2, C.cream);
+      pc.rect(24, 0, 7, 5, C.white);
+      pc.hline(24, 2, 7, C.silver);
+      pc.rect(25, -2, 6, 2, C.cream);
+      pc.rect(26, 7, 4, 4, C.white);
+      pc.set(29, 7, C.bark);
+      pc.rect(1, 26, 3, 4, C.night);
+      pc.rect(28, 26, 3, 4, C.night);
+    },
+  },
+  fileCabinet: {
+    w: 16,
+    h: 30,
+    draw(pc) {
+      pc.rect(1, 0, 14, 29, C.slate);
+      pc.hline(1, 0, 14, C.silver);
+      pc.vline(14, 1, 28, C.dusk);
+      for (let d = 0; d < 3; d++) {
+        const y = 3 + d * 9;
+        pc.rect(3, y, 10, 7, C.grey);
+        pc.hline(3, y, 10, C.silver);
+        pc.rect(5, y + 2, 6, 3, C.cream);
+        pc.hline(6, y + 3, 4, C.ink);
+      }
+      // a contract sticks out of the top drawer
+      pc.rect(4, 1, 6, 3, C.white);
+      pc.rect(1, 29, 2, 1, C.night);
+      pc.rect(13, 29, 2, 1, C.night);
+    },
+  },
+  // ---- the IT guy's wooden server cabin in the garden -------------------------------------------
+  serverCabin: {
+    w: 64,
+    h: 66,
+    frames: 2,
+    draw(pc, _v, f) {
+      // 6 px of headroom for the dish and the antenna above the roof
+      const oy = pc.oy;
+      pc.oy += 6;
+      // log walls: five logs with a light top and a dark seam, log ends at both corners
+      for (let i = 0; i < 6; i++) {
+        const y = 24 + i * 6;
+        pc.rect(2, y, 60, 6, C.wood);
+        pc.hline(2, y, 60, C.tan);
+        pc.hline(2, y + 5, 60, C.bark);
+        for (const x of [0, 59]) {
+          pc.ellipse(x, y, 5, 6, C.sand);
+          pc.set(x + 2, y + 2, C.tan);
+          pc.set(x + 2, y + 3, C.wood);
+        }
+      }
+      // window with a blinking rack behind it and cables hanging out of it
+      pc.rect(6, 29, 16, 13, C.cocoa);
+      pc.rect(8, 31, 12, 9, C.ink);
+      for (let u = 0; u < 3; u++) {
+        pc.hline(9, 32 + u * 3, 10, C.slate);
+        pc.set(10, 33 + u * 3, (u + f) % 2 ? C.leaf : C.moss);
+        pc.set(12, 33 + u * 3, (u + f) % 3 === 0 ? C.amber : C.night);
+      }
+      const cables = [C.red, C.sky, C.lemon];
+      cables.forEach((c, i) => {
+        const x = 10 + i * 3;
+        pc.vline(x, 41, 4 + i * 2, c);
+        pc.set(x + (i % 2 ? -1 : 1), 45 + i * 2, c);
+        pc.set(x + (i % 2 ? -1 : 1), 46 + i * 2, c);
+      });
+      // the open door (tile 3 of 4): a dark doorway with a rack inside, the leaf swung out
+      pc.rect(33, 29, 13, 29, C.cocoa);
+      pc.rect(34, 30, 11, 28, C.ink);
+      pc.rect(37, 34, 6, 22, C.slate);
+      for (let u = 0; u < 5; u++) {
+        const y = 36 + u * 4;
+        pc.hline(38, y, 4, C.grey);
+        pc.set(38, y + 1, (u + f) % 2 ? C.leaf : C.forest);
+        pc.set(40, y + 1, (u * 2 + f) % 3 === 0 ? C.amber : C.night);
+      }
+      pc.rect(46, 30, 4, 28, C.bark);
+      pc.vline(46, 30, 28, C.wood);
+      pc.set(48, 44, C.amber); // door handle
+      // roof: crooked dark planks, one sagging, one patched with a light board and nails
+      pc.rect(1, 2, 62, 22, C.bark);
+      for (let x = 3; x < 62; x += 6) pc.vline(x, 3, 20, C.cocoa);
+      pc.hline(1, 2, 62, C.wood);
+      pc.rect(22, 3, 6, 21, C.bark);
+      pc.hline(22, 23, 6, C.bark);
+      pc.hline(22, 24, 6, C.cocoa);
+      pc.rect(40, 7, 6, 7, C.sand);
+      pc.set(41, 8, C.slate);
+      pc.set(44, 12, C.slate);
+      pc.rect(0, 22, 64, 2, C.cocoa);
+      // a satellite dish and an antenna with a loose cable
+      pc.ellipse(48, -3, 9, 7, C.silver);
+      pc.ellipse(50, -2, 5, 4, C.white);
+      pc.vline(52, 3, 3, C.slate);
+      pc.vline(9, -6, 9, C.grey);
+      pc.hline(7, -5, 5, C.grey);
+      pc.set(10, 3, C.ink);
+      pc.set(11, 4, C.ink);
+      pc.vline(12, 5, 20, C.ink);
+      pc.set(13, 25, C.ink);
+      // hand-painted sign, nailed on crooked
+      const sign = "SERVER ROOM";
+      const sw = measureText(sign) + 4;
+      const sx = Math.floor((64 - sw) / 2);
+      pc.rect(sx, 13, sw, 8, C.sand);
+      pc.hline(sx, 20, sw, C.tan);
+      pc.rect(sx + sw - 12, 14, 12, 8, C.sand);
+      pc.hline(sx + sw - 12, 21, 12, C.tan);
+      drawText(pc, sx + 2, 15, sign, C.wine);
+      // the mess: a cardboard box, a cable reel and a stack of pizza boxes
+      pc.rect(1, 49, 10, 9, C.tan);
+      pc.hline(1, 49, 10, C.sand);
+      pc.vline(5, 49, 9, C.cream);
+      pc.vline(10, 50, 8, C.wood);
+      pc.ellipse(24, 51, 8, 7, C.orange);
+      pc.ellipse(26, 53, 4, 3, C.rust);
+      for (let i = 0; i < 3; i++) {
+        const y = 56 - i * 3;
+        pc.rect(51 + (i % 2), y - 2, 12, 3, C.sand);
+        pc.hline(51 + (i % 2), y, 12, C.tan);
+        pc.set(55 + i, y - 1, C.red);
+      }
+      pc.oy = oy;
     },
   },
 };
