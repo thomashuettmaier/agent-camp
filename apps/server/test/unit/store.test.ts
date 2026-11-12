@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { avatarFromSeed } from "@agent-office/protocol";
+import { avatarFromSeed, MAX_SELF_DESCRIPTION } from "@agent-office/protocol";
+import { LOOK_FIXTURES } from "@agent-office/protocol/fixtures";
 import { MemoryStore, SqlStore, type Store } from "../../src/core/store.ts";
 
 const sqlite = () => {
@@ -58,6 +59,16 @@ for (const [name, make] of [
       expect([...(s.getSnapshot(id) ?? [])]).toEqual([137, 80, 78, 71]);
       expect(s.getSnapshot(999)).toBeNull();
     });
+    test("avatars: detailed look and a max-length description roundtrip unchanged", () => {
+      const s = make();
+      const desc = "x".repeat(MAX_SELF_DESCRIPTION);
+      s.putAvatar("t", LOOK_FIXTURES.tracht, "anthropic:L1:abc", desc);
+      expect(s.getAvatar("t")).toEqual({
+        avatar: LOOK_FIXTURES.tracht,
+        key: "anthropic:L1:abc",
+        selfDescription: desc,
+      });
+    });
   });
 }
 
@@ -80,4 +91,59 @@ test("sqlite: avatars table from before the descr column is migrated", () => {
   s.putAvatar("old", avatarFromSeed("old"), "k1", "beard");
   expect(s.getAvatar("old")?.selfDescription).toBe("beard");
   new SqlStore(run); // idempotent
+});
+
+test("sqlite: avatar rows from before outfits get the new fields' defaults", () => {
+  const db = new Database(":memory:");
+  const store = new SqlStore(
+    (sql, ...params) => db.query(sql).all(...(params as never[])) as Record<string, unknown>[],
+  );
+  const { outfit: _o, leftHand: _l, rightHand: _r, ...old } = avatarFromSeed("anna");
+  db.query("INSERT INTO avatars (person, spec, key, updated) VALUES (?, ?, ?, ?)").run(
+    "anna",
+    JSON.stringify(old),
+    "k",
+    1,
+  );
+  expect(store.getAvatar("anna")?.avatar).toEqual(avatarFromSeed("anna"));
+});
+
+for (const [name, make] of [
+  ["memory", () => new MemoryStore()],
+  ["sqlite", sqlite],
+] as [string, () => Store][]) {
+  test(`${name}: custom look lives next to the automatic one`, () => {
+    const s = make();
+    const auto = avatarFromSeed("tom");
+    const custom = { ...auto, outfit: "flannel", leftHand: "beer" } as const;
+    s.putAvatar("tom", auto, "k", "");
+    expect(s.getCustomAvatar("tom")).toBeNull();
+    s.putCustomAvatar("tom", custom);
+    expect(s.getCustomAvatar("tom")).toEqual(custom);
+    expect(s.getAvatar("tom")?.avatar).toEqual(auto);
+    s.putCustomAvatar("tom", null);
+    expect(s.getCustomAvatar("tom")).toBeNull();
+    expect(s.getAvatar("tom")?.avatar).toEqual(auto);
+  });
+}
+
+describe("custom looks (WD9)", () => {
+  const tracht = LOOK_FIXTURES.tracht;
+  test("new rows keep the detailed look; rows saved before the wardrobe stay catalog ids only", () => {
+    const db = new Database(":memory:");
+    const store = new SqlStore(
+      (sql, ...args) => db.query(sql).all(...(args as never[])) as Record<string, unknown>[],
+    );
+    store.putCustomAvatar("tom", tracht);
+    expect(store.getCustomAvatar("tom")).toEqual(tracht);
+    // the old format: the bare avatar (LK23 dropped its look when reading it)
+    db.query("INSERT OR REPLACE INTO custom_avatars (person, spec, updated) VALUES (?, ?, ?)").run(
+      "anna",
+      JSON.stringify(tracht),
+      1,
+    );
+    const legacy = store.getCustomAvatar("anna")!;
+    expect(legacy.look).toBeUndefined();
+    expect(legacy.outfit).toBe(tracht.outfit ?? "jacket");
+  });
 });

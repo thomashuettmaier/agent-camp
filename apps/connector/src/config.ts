@@ -7,6 +7,8 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
+import { HELPER_SKINS, type HelperSkin } from "@agent-office/protocol";
+import { LOOK_GENERATOR_SETTINGS, type LookGeneratorSetting } from "./lookgen.ts";
 
 export type Config = {
   server?: string;
@@ -15,7 +17,27 @@ export type Config = {
   self_description?: string;
   /** label of this machine on the agent card; default: the short hostname */
   machine_name?: string;
+  /** Giphy id of the GIF over your head; "" = explicitly none (removes it everywhere) */
+  gif?: string;
   share_project_names: boolean;
+  /** show pokes from the office as macOS notifications */
+  notifications: boolean;
+  /** opt-in "MM-DD": the office brings a cake that day */
+  birthday?: string;
+  /**
+   * draw the look with Claude Code on your own subscription: off | auto | claude.
+   * Opt-in: missing (or unknown) means off, so an update or reconnect never starts spending it.
+   */
+  look_generator: LookGeneratorSetting;
+  /** what your subagents look like in the office: "robots" (default) or "cats" */
+  helpers: HelperSkin;
+  /**
+   * what the Claude desktop app counts as: "off" (default) or "design" = one Claude Design desk
+   * while the app runs (macOS)
+   */
+  claude_app: ClaudeAppSetting;
+  /** opt-in: show Cowork sessions of the Claude desktop app (often not coding work) */
+  cowork: boolean;
   client_id: string;
 };
 
@@ -25,7 +47,14 @@ export const CONFIG_KEYS = [
   "name",
   "self_description",
   "machine_name",
+  "gif",
   "share_project_names",
+  "notifications",
+  "birthday",
+  "look_generator",
+  "helpers",
+  "claude_app",
+  "cowork",
   "client_id",
 ] as const;
 
@@ -123,6 +152,38 @@ export function machineName(config: Pick<Config, "machine_name">, host?: string)
   return v || defaultMachineName(host);
 }
 
+/** A valid `look_generator` value, or undefined. */
+export function lookGeneratorSetting(v: string | undefined): LookGeneratorSetting | undefined {
+  const t = v?.trim().toLowerCase();
+  return (LOOK_GENERATOR_SETTINGS as readonly string[]).includes(t ?? "")
+    ? (t as LookGeneratorSetting)
+    : undefined;
+}
+
+/** "MM-DD" or undefined. */
+export function validBirthday(v: string | undefined): string | undefined {
+  const t = v?.trim();
+  return t && /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(t) ? t : undefined;
+}
+
+/** "robots" | "cats" (trimmed, any case) or undefined for anything else. */
+export function validHelpers(v: string | undefined): HelperSkin | undefined {
+  const t = v?.trim().toLowerCase();
+  return (HELPER_SKINS as readonly string[]).includes(t ?? "") ? (t as HelperSkin) : undefined;
+}
+
+export const CLAUDE_APP_SETTINGS = ["off", "design"] as const;
+export type ClaudeAppSetting = (typeof CLAUDE_APP_SETTINGS)[number];
+
+/** "off" | "design" (trimmed, any case; "" = off) or undefined for anything else. */
+export function claudeAppSetting(v: string | undefined): ClaudeAppSetting | undefined {
+  const t = v?.trim().toLowerCase();
+  if (t === "") return "off";
+  return (CLAUDE_APP_SETTINGS as readonly string[]).includes(t ?? "")
+    ? (t as ClaudeAppSetting)
+    : undefined;
+}
+
 export function newClientId(): string {
   return `c_${randomBytes(9).toString("hex")}`;
 }
@@ -131,6 +192,8 @@ export function newClientId(): string {
 export function toConfig(values: Record<string, TomlValue>): Config {
   const s = (k: string) => (typeof values[k] === "string" ? (values[k] as string) : undefined);
   const share = values.share_project_names;
+  const notify = values.notifications;
+  const cowork = values.cowork;
   const clientId = s("client_id");
   return {
     server: s("server"),
@@ -138,7 +201,14 @@ export function toConfig(values: Record<string, TomlValue>): Config {
     name: s("name"),
     self_description: s("self_description"),
     machine_name: s("machine_name"),
+    gif: s("gif"),
     share_project_names: !(share === false || share === "false"),
+    notifications: !(notify === false || notify === "false"),
+    birthday: validBirthday(s("birthday")),
+    look_generator: lookGeneratorSetting(s("look_generator")) ?? "off",
+    helpers: validHelpers(s("helpers")) ?? "robots",
+    claude_app: claudeAppSetting(s("claude_app")) ?? "off",
+    cowork: cowork === true || cowork === "true",
     client_id: clientId && /^[A-Za-z0-9_-]{1,64}$/.test(clientId) ? clientId : newClientId(),
   };
 }
@@ -164,7 +234,14 @@ export function saveConfig(path: string, config: Config): void {
       name: config.name,
       self_description: config.self_description,
       machine_name: config.machine_name,
+      gif: config.gif,
       share_project_names: config.share_project_names,
+      notifications: config.notifications,
+      birthday: config.birthday,
+      look_generator: config.look_generator,
+      helpers: config.helpers,
+      claude_app: config.claude_app,
+      cowork: config.cowork,
       client_id: config.client_id,
     }),
     { mode: 0o600 },

@@ -29,6 +29,116 @@ const snap = (people: PersonView[]) =>
   envelope("office.snapshot", { officeName: "Camp", serverTime: T0, people }, { ts: T0 });
 
 describe("OfficeModel", () => {
+  test("Office Messages stay out of world changes; legacy message interactions remain transient", () => {
+    const m = new OfficeModel(() => T0);
+    const before = m.stats();
+    expect(
+      m.apply(
+        envelope("message.sent", {
+          message: {
+            id: "saved-message",
+            seq: 1,
+            ts: T0,
+            text: "Do not draw this in timelapse",
+            audience: "everyone",
+            recipients: [],
+            notifyDesktop: false,
+          },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      m.apply(
+        envelope("interaction.happened", {
+          kind: "message",
+          personId: "anna",
+          text: "Legacy",
+        }),
+      ),
+    ).toMatchObject([{ kind: "interaction", interaction: "message", text: "Legacy" }]);
+    expect(
+      m.apply(envelope("interaction.happened", { kind: "wave", personId: "anna" }))[0]?.kind,
+    ).toBe("interaction");
+    expect(m.stats()).toEqual(before);
+  });
+  test("helper skin: robots by default, cats from snapshot and event", () => {
+    const m = new OfficeModel(() => T0);
+    m.apply(snap([person("Anna"), { ...person("Bob"), helpers: "cats" }]));
+    expect(m.people.get("anna")?.helpers).toBe("robots");
+    expect(m.people.get("bob")?.helpers).toBe("cats");
+    const ch = m.apply(envelope("person.helpersChanged", { personId: "anna", helpers: "cats" }));
+    expect(ch).toEqual([{ kind: "helpersChanged", personId: "anna", helpers: "cats" }]);
+    expect(
+      m.apply(envelope("person.helpersChanged", { personId: "anna", helpers: "cats" })),
+    ).toEqual([]);
+    // a resync snapshot without the field turns Bob back to robots
+    const back = m.apply(snap([{ ...person("Anna"), helpers: "cats" }, person("Bob")]));
+    expect(back).toContainEqual({ kind: "helpersChanged", personId: "bob", helpers: "robots" });
+  });
+
+  test("cat interactions carry the cat and the floor spot", () => {
+    const m = new OfficeModel(() => T0);
+    m.apply(snap([person("Anna")]));
+    const yarn = m.apply(
+      envelope("interaction.happened", { kind: "yarn", from: "Lea", catId: 2, x: 600, y: 140 }),
+    );
+    expect(yarn).toEqual([
+      {
+        kind: "interaction",
+        interaction: "yarn",
+        personId: undefined,
+        from: "Lea",
+        text: undefined,
+        delivered: undefined,
+        catId: 2,
+        spot: { x: 600, y: 140 },
+      },
+    ]);
+    const visit = m.apply(
+      envelope("interaction.happened", { kind: "cat", personId: "anna", catId: 1, delivered: 0 }),
+    );
+    expect(visit[0]).toMatchObject({ interaction: "cat", personId: "anna", catId: 1 });
+    expect(visit[0]).toMatchObject({ spot: undefined });
+  });
+
+  test("party scores and equipment reconcile through socket snapshots and events", () => {
+    const m = new OfficeModel(() => T0);
+    const p = person("Anna", [sess("a1")]);
+    m.apply(snap([p]));
+    const avatar = { ...p.avatar, rightHand: "lightsaber" as const, vehicle: "car" as const };
+    m.apply(envelope("avatar.updated", { personId: "anna", avatar }));
+    const party = {
+      scores: { anna: 3 },
+      events: [
+        {
+          id: "party-1",
+          personId: "anna",
+          action: "race" as const,
+          item: "lightsaber" as const,
+          vehicle: "car" as const,
+          at: T0,
+          roll: 3,
+        },
+      ],
+    };
+    expect(m.apply(envelope("party.updated", { party }))).toEqual([{ kind: "partyChanged" }]);
+    expect(m.party.scores.anna).toBe(3);
+    expect(m.people.get("anna")!.avatar.rightHand).toBe("lightsaber");
+    // Party updates must leave the reported coding session state intact.
+    expect(m.sessions.get("laptop:a1")!.activity).toBe("typing");
+    m.apply(
+      envelope("office.snapshot", {
+        officeName: "Camp",
+        serverTime: T0,
+        people: [{ ...p, avatar }],
+        party,
+      }),
+    );
+    expect(m.party).toEqual(party);
+    m.apply(snap([p]));
+    expect(m.party).toEqual({ events: [], scores: {} });
+  });
+
   test("agent card data: machine, subagent peak, activity timeline", () => {
     let now = T0;
     const m = new OfficeModel(() => now);
@@ -98,6 +208,14 @@ describe("OfficeModel", () => {
     expect(st.byAgent).toMatchObject({ claude: 1, codex: 1 });
   });
 
+  test("a Claude Design session is counted as its own agent kind", () => {
+    const m = new OfficeModel(() => T0);
+    m.apply(
+      snap([person("Dana", [sess("d1", { agent: "design", activity: "thinking" }), sess("d2")])]),
+    );
+    expect(m.stats().byAgent).toEqual({ claude: 1, codex: 0, pi: 0, design: 1, unknown: 0 });
+  });
+
   test("pods and desks are stable and reuse the lowest free slot", () => {
     const m = new OfficeModel(() => T0);
     m.apply(snap([person("Anna", [sess("a1")]), person("Ben", [sess("b1")])]));
@@ -112,6 +230,62 @@ describe("OfficeModel", () => {
     m.apply(envelope("session.ended", { personId: "ben", sessionId: "laptop:b2" }));
     m.apply(envelope("session.started", { personId: "ben", session: sess("b4") }));
     expect(m.sessions.get("laptop:b4")!.desk).toBe(1);
+  });
+
+  test("a session moved into a freed desk frees its old one", () => {
+    const m = new OfficeModel(() => T0);
+    m.apply(snap([person("Ben", [sess("b1"), sess("b2"), sess("b3")])]));
+    m.apply(envelope("session.ended", { personId: "ben", sessionId: "laptop:b1" }));
+    m.moveDesk("laptop:b3", 0);
+    expect(m.sessionsOf("ben").map((s) => s.desk)).toEqual([0, 1]);
+    m.apply(envelope("session.started", { personId: "ben", session: sess("b4") }));
+    expect(m.sessions.get("laptop:b4")!.desk).toBe(2);
+  });
+
+  test("a snapshot with more sessions than desks seats the working ones first", () => {
+    const m = new OfficeModel(() => T0);
+    const idle = { activity: "idle" as const };
+    // 7 idle sessions listed first, then two working ones and an offline "typing" one
+    const many = [1, 2, 3, 4, 5, 6, 7].map((i) => sess(`i${i}`, idle));
+    m.apply(
+      snap([
+        person("Ben", [
+          ...many,
+          sess("w1"),
+          sess("off", { offline: true }),
+          sess("w2", { activity: "running" }),
+        ]),
+      ]),
+    );
+    const desk = (id: string) => m.sessions.get(`laptop:${id}`)!.desk;
+    expect(desk("w1")).toBeLessThan(6);
+    expect(desk("w2")).toBeLessThan(6);
+    // the free desks left go to the first idle ones, in incoming order
+    expect(["i1", "i2", "i3", "i4"].map(desk)).toEqual([0, 1, 2, 3]);
+    expect([desk("w1"), desk("w2")]).toEqual([4, 5]);
+    for (const id of ["i5", "i6", "i7", "off"]) expect(desk(id)).toBeGreaterThanOrEqual(6);
+    // desks stay unique
+    const all = m.sessionsOf("ben").map((s) => s.desk);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  test("snapshot seating keeps the incoming order when everything fits, and known desks", () => {
+    const m = new OfficeModel(() => T0);
+    m.apply(snap([person("Ben", [sess("b1", { activity: "idle" }), sess("b2")])]));
+    expect(m.sessionsOf("ben").map((s) => s.sessionId)).toEqual(["laptop:b1", "laptop:b2"]);
+    // a re-snapshot with more sessions: known ones keep their desks, new working ones get the
+    // remaining free desks before the new idle ones
+    const idle = [3, 4, 5, 6, 7].map((i) => sess(`b${i}`, { activity: "idle" }));
+    m.apply(
+      snap([person("Ben", [sess("b1", { activity: "idle" }), sess("b2"), ...idle, sess("b8")])]),
+    );
+    const desk = (id: string) => m.sessions.get(`laptop:${id}`)!.desk;
+    expect([desk("b1"), desk("b2")]).toEqual([0, 1]);
+    expect(desk("b8")).toBeLessThan(6);
+    expect(["b3", "b4", "b5"].map(desk)).toEqual([2, 3, 4]);
+    expect(desk("b8")).toBe(5);
+    expect(desk("b6")).toBeGreaterThanOrEqual(6);
+    expect(desk("b7")).toBeGreaterThanOrEqual(6);
   });
 
   test("events produce animated changes", () => {

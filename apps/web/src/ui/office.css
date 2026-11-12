@@ -10,17 +10,24 @@
 #app canvas {
   display: block;
 }
+/* notch / home indicator / rounded corners (installed app, landscape phones) */
+:root {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+}
 
 .hud-top {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 36px;
+  height: calc(36px + var(--safe-t));
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 10px;
+  padding: var(--safe-t) max(10px, var(--safe-r)) 0 max(10px, var(--safe-l));
   background: var(--night);
   border-bottom: 2px solid var(--cocoa);
   box-shadow: 0 2px 0 rgba(24, 20, 37, 0.5);
@@ -38,6 +45,131 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 34vw;
+  position: relative;
+}
+.hud-top .brand span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the logo is the menu button */
+.hud-top button.brand {
+  flex: none;
+  margin: 0 0 0 -6px;
+  padding: 4px 6px;
+  height: 30px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+.hud-top button.brand:hover,
+.hud-top button.brand[aria-expanded="true"] {
+  background: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--dusk);
+}
+.hud-top button.brand:focus-visible {
+  outline: 2px solid var(--lemon);
+}
+.hud-top .brand .caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--grey);
+}
+/* the browser can install the app: a little lemon pixel on the logo */
+.hud-top .brand.can-install::after {
+  content: "";
+  position: absolute;
+  left: 22px;
+  top: 3px;
+  width: 6px;
+  height: 6px;
+  background: var(--lemon);
+  box-shadow: 0 0 0 2px var(--night);
+}
+
+.hud-menu {
+  position: absolute;
+  top: calc(40px + var(--safe-t));
+  left: max(8px, var(--safe-l));
+  z-index: 8;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  min-width: 190px;
+  max-width: calc(100vw - 16px);
+}
+.hud-menu.show {
+  display: flex;
+}
+.hud-menu form {
+  margin: 0;
+  display: flex;
+}
+.hud-menu .pixel-btn {
+  text-align: left;
+  text-decoration: none;
+  flex: 1;
+  padding: 9px 12px;
+}
+/* buttons of the Me menu (top right, see the end of this file) */
+.me-menu .pixel-btn {
+  width: 100%;
+  min-height: 36px;
+  font-size: 12px;
+  text-align: center;
+}
+.me-menu .link-btn:focus-visible,
+.me-menu .pixel-btn:focus-visible,
+:is(.me-menu, .look-callout) .claim-help summary:focus-visible {
+  outline: 2px solid var(--lemon);
+  outline-offset: 2px;
+}
+.hud-menu .install,
+.hud-menu .ios {
+  background: var(--rust);
+  box-shadow:
+    inset 0 calc(var(--px) * -2) 0 var(--wine),
+    inset 0 var(--px) 0 var(--clay);
+}
+.hud-menu .tip {
+  display: none;
+  margin: 0;
+  padding: 4px 2px 2px;
+  max-width: 220px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--silver);
+}
+.hud-menu.ios-tip .tip {
+  display: block;
+}
+.hud-menu .tip b {
+  color: var(--cream);
+}
+/* the iOS share glyph (box + arrow), drawn in pixels */
+.hud-menu .share-icon {
+  display: inline-block;
+  vertical-align: -2px;
+  width: 10px;
+  height: 9px;
+  margin: 0 2px;
+  border: 2px solid var(--sky);
+  border-top: 0;
+  position: relative;
+}
+.hud-menu .share-icon::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -6px;
+  width: 2px;
+  height: 9px;
+  background: var(--sky);
 }
 .hud-top .brand img {
   width: 20px;
@@ -77,7 +209,7 @@
 
 .hud-banner {
   position: absolute;
-  top: 52px;
+  top: calc(52px + var(--safe-t));
   left: 50%;
   transform: translate(-50%, -160%);
   display: flex;
@@ -125,8 +257,8 @@
 
 .hud-reconnect {
   position: absolute;
-  left: 10px;
-  bottom: 10px;
+  left: max(10px, var(--safe-l));
+  bottom: max(10px, var(--safe-b));
   padding: 6px 10px;
   font-family: var(--font-pixel);
   font-size: 12px;
@@ -149,8 +281,8 @@
 
 .hud-minimap {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: max(10px, var(--safe-r));
+  bottom: max(10px, var(--safe-b));
   padding: 4px;
   z-index: 5;
   cursor: pointer;
@@ -161,10 +293,10 @@
 
 .hud-panel {
   position: absolute;
-  top: 46px;
-  right: 10px;
+  top: calc(46px + var(--safe-t));
+  right: max(10px, var(--safe-r));
   width: 300px;
-  max-height: calc(100% - 140px);
+  max-height: calc(100% - 140px - var(--safe-t) - var(--safe-b));
   overflow: auto;
   padding: 12px;
   z-index: 7;
@@ -493,13 +625,147 @@
   color: var(--cream);
 }
 
+/* person card: Customize (head GIF); [hidden] at (0,3,0) beats the display rules below */
+.hud-panel .customize [hidden] {
+  display: none;
+}
+.hud-panel .customize-title {
+  margin-bottom: 6px;
+}
+.hud-panel .customize-current {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+.hud-panel .customize-current-link,
+.hud-panel .customize-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  background: var(--ink);
+  border: 2px solid var(--night);
+  box-shadow: inset 0 0 0 2px var(--dusk);
+}
+.hud-panel .customize-current-img,
+.hud-panel .customize-new-img {
+  display: block;
+  max-width: 96px;
+  max-height: 72px;
+  min-width: 24px;
+  min-height: 24px;
+}
+.hud-panel .customize-current-link:focus-visible {
+  outline: 2px solid var(--lemon);
+  outline-offset: 2px;
+}
+.hud-panel .customize-none {
+  font-size: 14px;
+}
+.hud-panel .customize-form {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.hud-panel .customize-new {
+  justify-self: start;
+  padding-left: 8px;
+}
+.hud-panel .customize-new-label {
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.hud-panel .customize-input,
+.hud-panel .customize-password-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 8px;
+  font-family: var(--font-body);
+  /* >= 16px so iOS doesn't zoom in on focus */
+  font-size: 16px;
+  color: var(--white);
+  background: var(--ink);
+  border: 2px solid var(--night);
+  border-radius: 0;
+  box-shadow: inset 0 0 0 2px var(--dusk);
+  -webkit-appearance: none;
+  appearance: none;
+  /* #app turns selection off for the canvas; inputs need it to focus, type and paste on iOS */
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+}
+.hud-panel .customize-input::placeholder {
+  color: var(--slate);
+}
+.hud-panel .customize-input:focus-visible,
+.hud-panel .customize-password-input:focus-visible,
+.hud-panel .customize-buttons .pixel-btn:focus-visible {
+  outline: 2px solid var(--lemon);
+  outline-offset: 2px;
+}
+.hud-panel .customize-password {
+  display: grid;
+  gap: 4px;
+}
+.hud-panel .customize-password-label {
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  color: var(--grey);
+  text-transform: uppercase;
+}
+.hud-panel .customize-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.hud-panel .customize-buttons .pixel-btn {
+  min-height: 40px;
+  touch-action: manipulation;
+}
+.hud-panel .customize-save:not(:disabled) {
+  background: var(--moss);
+  box-shadow:
+    inset 0 calc(var(--px) * -2) 0 var(--forest),
+    inset 0 var(--px) 0 var(--leaf);
+}
+.hud-panel .customize-save:not(:disabled):active {
+  box-shadow: inset 0 var(--px) 0 var(--forest);
+}
+.hud-panel .customize-buttons .pixel-btn:disabled {
+  cursor: default;
+  color: var(--slate);
+  background: var(--ink);
+  box-shadow: inset 0 0 0 var(--px) var(--dusk);
+  transform: none;
+}
+.hud-panel .customize-hint,
+.hud-panel .customize-status {
+  font-size: 13px;
+  color: var(--grey);
+  overflow-wrap: anywhere;
+}
+.hud-panel .customize-hint:empty,
+.hud-panel .customize-status:empty {
+  display: none;
+}
+.hud-panel .customize-hint.is-error,
+.hud-panel .customize-status.is-error {
+  color: var(--pink);
+}
+.hud-panel .customize-status.is-ok {
+  color: var(--leaf);
+}
+
 @media (max-width: 560px) {
   .hud-panel,
   .hud-panel.card {
     top: auto;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
+    left: max(10px, var(--safe-l));
+    right: max(10px, var(--safe-r));
+    bottom: max(10px, var(--safe-b));
     width: auto;
     max-height: 60%;
   }
@@ -519,7 +785,7 @@ body.kiosk * {
   cursor: none;
 }
 body.kiosk .hud-top {
-  height: 46px;
+  height: calc(46px + var(--safe-t));
 }
 body.kiosk .hud-top .brand,
 body.kiosk .hud-top .clock {
@@ -530,7 +796,7 @@ body.kiosk .pixel-chip {
   line-height: 22px;
 }
 body.kiosk .hud-banner {
-  top: 64px;
+  top: calc(64px + var(--safe-t));
   font-size: 30px;
 }
 body.kiosk .hud-banner .sub {
@@ -541,7 +807,8 @@ body.kiosk .hud-banner .banner-portrait {
   height: 60px;
 }
 body.kiosk .hud-minimap,
-body.kiosk .hud-panel {
+body.kiosk .hud-panel,
+body.kiosk .customize {
   display: none;
 }
 body.kiosk .hud-reconnect {
@@ -551,5 +818,1104 @@ body.kiosk .hud-reconnect {
 @media (max-width: 900px) {
   .hud-top .chip-label {
     display: none;
+  }
+}
+
+/* phones: logo only, compact chips that scroll sideways instead of being cut off */
+@media (max-width: 560px) {
+  .hud-top {
+    gap: 6px;
+    padding-left: max(8px, var(--safe-l));
+    padding-right: max(8px, var(--safe-r));
+  }
+  .hud-top .brand {
+    flex: none;
+  }
+  .hud-top .brand span {
+    display: none;
+  }
+  .hud-top .chips {
+    justify-content: flex-start;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    pointer-events: auto;
+    touch-action: pan-x;
+  }
+  .hud-top .chips::-webkit-scrollbar {
+    display: none;
+  }
+  .hud-top .chips > *:first-child {
+    margin-left: auto;
+  }
+  .hud-top .chips > *:last-child {
+    margin-right: auto;
+  }
+  .hud-top .agents {
+    gap: 4px;
+  }
+  .hud-top .pixel-chip {
+    gap: 4px;
+    padding: 1px 5px;
+    flex: none;
+  }
+  .hud-top .chip-icon {
+    width: 14px;
+    height: 14px;
+  }
+  .hud-top .clock {
+    flex: none;
+    min-width: 0;
+  }
+}
+
+/* poke box (person panel + agent card) */
+.hud-panel .poke {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 2px dashed var(--dusk);
+  display: grid;
+  gap: 8px;
+}
+.hud-panel .poke-title {
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  color: var(--grey);
+}
+.hud-panel .poke-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.hud-panel .poke-btns .pixel-btn {
+  font-size: 12px;
+  padding: 5px 6px;
+}
+.hud-panel .poke-msg {
+  display: flex;
+  gap: 6px;
+}
+.hud-panel .poke input {
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 7px;
+  background: var(--cream);
+  color: var(--night);
+  border: 2px solid var(--night);
+}
+.hud-panel .poke-from {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--grey);
+}
+.hud-panel .poke-status {
+  min-height: 1em;
+  font-size: 12px;
+  color: var(--grey);
+}
+.hud-panel .poke-status.ok {
+  color: var(--leaf);
+}
+.hud-panel .poke-status.err {
+  color: var(--pink);
+}
+
+/* cat card */
+.hud-panel .portrait.cat {
+  width: 72px;
+  height: 56px;
+}
+.hud-panel .poke-btns .pixel-btn.armed {
+  background: var(--red);
+  color: var(--white);
+}
+.hud-panel .now.offline .act-name {
+  color: var(--grey);
+}
+.hud-panel .now.offline .act-since {
+  white-space: normal;
+}
+
+.hud-top .brand .ver {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--grey);
+  opacity: 0.8;
+}
+.hud-panel .ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hud-panel .ctx-bar {
+  display: inline-block;
+  width: 64px;
+  height: 6px;
+  background: var(--night);
+  border: 1px solid var(--dusk);
+}
+.hud-panel .ctx-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--leaf);
+}
+.hud-panel .ctx.warm .ctx-bar > span {
+  background: var(--amber);
+}
+.hud-panel .ctx.fire .ctx-bar > span {
+  background: var(--red);
+}
+
+/* ---- look studio (fullscreen look editor) ------------------------------------------------ */
+.hud-panel .edit-look {
+  margin-top: 10px;
+  width: 100%;
+  font-size: 12px;
+}
+.hud-panel .link-btn,
+.me-menu .link-btn {
+  display: block;
+  margin: 6px auto 0;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--grey);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+:is(.me-menu, .look-callout) .claim {
+  display: grid;
+  gap: 6px;
+}
+:is(.me-menu, .look-callout) .claim-title {
+  font-size: 12px;
+  color: var(--silver);
+}
+:is(.me-menu, .look-callout) .claim-send,
+:is(.me-menu, .look-callout) .claim-form .pixel-btn {
+  font-size: 12px;
+}
+:is(.me-menu, .look-callout) .claim-form .pixel-btn {
+  flex: none;
+}
+:is(.me-menu, .look-callout) .claim-form {
+  display: grid;
+  gap: 4px;
+}
+:is(.me-menu, .look-callout) .claim-form label {
+  font-size: 12px;
+  color: var(--silver);
+}
+:is(.me-menu, .look-callout) .claim-row {
+  display: flex;
+  gap: 6px;
+}
+:is(.me-menu, .look-callout) .claim-form[hidden] {
+  display: none;
+}
+:is(.me-menu, .look-callout) .claim-row input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  font: inherit;
+  /* 16px: iOS Safari zooms the page into smaller fields */
+  font-size: 16px;
+  letter-spacing: 3px;
+  padding: 4px 7px;
+  background: var(--cream);
+  color: var(--night);
+  border: 2px solid var(--night);
+}
+.look-studio {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: calc(12px + var(--safe-t)) max(12px, var(--safe-r)) calc(12px + var(--safe-b))
+    max(12px, var(--safe-l));
+  background: rgb(24 20 37 / 82%);
+}
+.look-studio .studio {
+  width: min(1100px, 100%);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 14px 16px;
+}
+.look-studio .studio-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.look-studio .studio-head h2 {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--lemon);
+}
+.look-studio .studio-keys {
+  flex: 1;
+  font-size: 12px;
+  color: var(--grey);
+}
+.look-studio .close {
+  margin-left: auto;
+  font-size: 16px;
+  padding: 2px 10px;
+}
+.look-studio .studio-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(320px, 1.2fr);
+  gap: 18px;
+}
+.look-studio .studio-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.look-studio .look-preview {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  align-content: center;
+  gap: 18px;
+  padding: 18px;
+  background: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--dusk);
+}
+.look-studio .look-preview .look-canvas {
+  width: 96px;
+  height: auto;
+  image-rendering: pixelated;
+}
+.look-studio .look-preview .look-canvas:first-child {
+  width: 160px;
+  height: auto;
+}
+.look-studio .look-preview .look-ride {
+  width: 144px;
+  height: auto;
+}
+.look-studio .look-note {
+  font-size: 12px;
+  color: var(--grey);
+}
+.look-studio .look-current {
+  font-size: 13px;
+}
+.look-studio .look-current b {
+  font-weight: 400;
+  color: var(--lemon);
+}
+.look-studio .studio-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.look-studio .studio-tabs {
+  display: flex;
+  gap: 6px;
+}
+.look-studio .studio-tab {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--silver);
+  background: var(--dusk);
+  box-shadow: none;
+}
+.look-studio .studio-tab[aria-selected="true"] {
+  color: var(--night);
+  background: var(--lemon);
+}
+.look-studio .studio-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.look-studio .studio-pane[hidden] {
+  display: none;
+}
+.look-studio .pane-note {
+  font-size: 12px;
+  color: var(--grey);
+}
+.look-studio .look-callout {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--silver);
+  background: var(--ink);
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+.look-studio .look-callout[hidden] {
+  display: none;
+}
+.look-studio .look-callout b {
+  font-weight: 400;
+  color: var(--amber);
+}
+.look-callout code {
+  padding: 0 3px;
+  color: var(--cream);
+  background: var(--night);
+  user-select: all;
+}
+.look-studio .link-btn {
+  justify-self: start;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--grey);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.look-studio .back-to-described {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--silver);
+}
+.look-studio .back-to-described[hidden] {
+  display: none;
+}
+.look-studio .back-to-described .pixel-btn,
+.look-studio .parts-foot .pixel-btn {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.look-studio .parts-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.look-studio .parts-foot .pixel-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.look-studio .studio-rows {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+.look-studio .look-group h3 {
+  margin: 10px 0 6px;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--grey);
+  text-transform: uppercase;
+}
+.look-studio .look-group:first-child h3 {
+  margin-top: 0;
+}
+.look-studio .look-row {
+  display: grid;
+  grid-template-columns: 110px 44px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 3px 6px;
+  outline: none;
+}
+.look-studio .look-row:focus,
+.look-studio .look-row:focus-within {
+  background: var(--dusk);
+  box-shadow: inset 2px 0 0 var(--lemon);
+}
+.look-studio .row-label {
+  font-size: 13px;
+  color: var(--grey);
+}
+.look-studio .arrow {
+  height: 36px;
+  padding: 0;
+  font-size: 14px;
+}
+.look-studio .row-value {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 15px;
+  color: var(--night);
+  background: var(--cream);
+  border: 2px solid var(--night);
+}
+.look-studio .row-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.look-studio .row-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--slate);
+}
+
+/* ---- Design it (WD8): section tabs, rows with colour chips, colour picker, outfits ---- */
+.look-studio .design {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.look-studio .design-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.look-studio .design-tab {
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--silver);
+  background: var(--ink);
+  border: 0;
+  box-shadow: inset 0 0 0 2px var(--dusk);
+  cursor: pointer;
+}
+.look-studio .design-tab[aria-selected="true"] {
+  color: var(--night);
+  background: var(--cream);
+  box-shadow: inset 0 0 0 2px var(--night);
+}
+.look-studio .design-tab:focus-visible {
+  outline: 2px solid var(--lemon);
+}
+.look-studio .design-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.look-studio .design-row {
+  /* a fixed column for up to 3 colour chips, so every carousel lines up */
+  grid-template-columns: 110px 44px 1fr 44px 80px;
+}
+.look-studio .design-row.colors-only {
+  grid-template-columns: 110px 1fr;
+}
+.look-studio .row-colors {
+  display: flex;
+  gap: 4px;
+}
+.look-studio .design-row.colors-only .row-colors {
+  grid-column: 2;
+}
+.look-studio .design-row.colors-only .row-value {
+  display: none;
+}
+.look-studio .color-chip,
+.look-studio .swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--chip);
+  border: 2px solid var(--night);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
+  cursor: pointer;
+}
+.look-studio .color-chip.none,
+.look-studio .swatch.none {
+  background: linear-gradient(
+    135deg,
+    var(--cream) 0 44%,
+    var(--red) 44% 56%,
+    var(--cream) 56% 100%
+  );
+}
+.look-studio .color-chip.open,
+.look-studio .swatch.on {
+  outline: 2px solid var(--lemon);
+  outline-offset: 1px;
+}
+.look-studio .color-pop {
+  display: grid;
+  gap: 6px;
+  margin: -2px 0 8px;
+  padding: 8px 10px;
+  background: var(--ink);
+  box-shadow: inset 3px 0 0 var(--lemon);
+}
+.look-studio .color-pop-label {
+  font-size: 12px;
+  color: var(--grey);
+}
+.look-studio .swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.look-studio .color-any {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--silver);
+}
+.look-studio .color-any input {
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: 2px solid var(--night);
+}
+.look-studio .outfit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.look-studio .outfit-head .pixel-btn {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.look-studio .outfit-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+  padding-right: 4px;
+}
+.look-studio .outfit-card {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 4px 2px 6px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--silver);
+  background: var(--ink);
+  border: 0;
+  box-shadow: inset 0 0 0 2px var(--dusk);
+  cursor: pointer;
+}
+.look-studio .outfit-card:hover,
+.look-studio .outfit-card:focus-visible {
+  color: var(--night);
+  background: var(--cream);
+  outline: none;
+}
+.look-studio .outfit-thumb {
+  width: 48px;
+  height: auto;
+  image-rendering: pixelated;
+}
+.look-studio .look-change {
+  display: grid;
+  gap: 6px;
+}
+.look-studio .look-change .change-undo[hidden] {
+  display: none;
+}
+.look-studio .studio-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.look-studio .look-status {
+  flex: 1;
+  font-size: 13px;
+}
+.look-studio .studio-foot .pixel-btn {
+  min-width: 140px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .look-studio {
+    padding: calc(4px + var(--safe-t)) 4px calc(4px + var(--safe-b));
+  }
+  .look-studio .studio {
+    padding: 10px;
+  }
+  .look-studio .studio-keys {
+    display: none;
+  }
+  .look-studio .studio-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .look-studio .studio-stage {
+    flex: none;
+  }
+  .look-studio .look-preview {
+    gap: 10px;
+    padding: 10px;
+  }
+  .look-studio .look-preview .look-canvas {
+    width: 48px;
+    height: auto;
+  }
+  .look-studio .look-preview .look-canvas:first-child {
+    width: 80px;
+    height: auto;
+  }
+  .look-studio .look-note {
+    display: none;
+  }
+  .look-studio .studio-side {
+    flex: 1;
+  }
+  .look-studio .studio-rows {
+    flex: 1;
+  }
+  .look-studio .look-row {
+    grid-template-columns: 84px 40px 1fr 40px;
+    gap: 6px;
+  }
+  /* phones: the colour chips of a part go on their own line under its carousel */
+  .look-studio .design-row {
+    grid-template-columns: 84px 40px 1fr 40px;
+  }
+  .look-studio .design-row .row-colors:not(:empty) {
+    grid-column: 2 / -1;
+  }
+  .look-studio .design-row.colors-only {
+    grid-template-columns: 84px 1fr;
+  }
+  .look-studio .design-row.colors-only .row-colors {
+    grid-column: auto;
+  }
+  .look-studio .row-value {
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  .look-studio .studio-foot .pixel-btn {
+    min-width: 0;
+    flex: 1;
+  }
+  .look-studio .look-status {
+    flex-basis: 100%;
+  }
+  .look-studio .studio-foot {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---- refresh button (top bar) ------------------------------------------------------------- */
+.hud-top .refresh {
+  flex: none;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  background: none;
+  border: 0;
+  color: var(--grey);
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  cursor: pointer;
+}
+.hud-top .refresh:hover {
+  background: var(--ink);
+  color: var(--cream);
+  box-shadow: inset 0 0 0 2px var(--dusk);
+}
+.hud-top .refresh:focus-visible {
+  outline: 2px solid var(--lemon);
+}
+.hud-top .refresh .icon {
+  font-size: 16px;
+  line-height: 1;
+}
+.hud-top .refresh .label {
+  display: none;
+}
+.hud-top .refresh.ready {
+  background: var(--rust);
+  color: var(--white);
+  box-shadow: inset 0 -2px 0 var(--wine);
+  animation: refresh-pulse 1.6s steps(2) infinite;
+}
+.hud-top .refresh.ready .label {
+  display: inline;
+}
+@keyframes refresh-pulse {
+  50% {
+    background: var(--orange);
+  }
+}
+@media (max-width: 640px) {
+  .hud-top .refresh.ready .label {
+    display: none;
+  }
+}
+
+/* ---- release celebration (wide strip across the office) ------------------------------------ */
+.celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  align-items: center;
+  pointer-events: none;
+  overflow: hidden;
+}
+.celebration .confetti {
+  position: absolute;
+  inset: 0;
+}
+.celebration .confetti i {
+  position: absolute;
+  top: -20px;
+  width: 8px;
+  height: 12px;
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes confetti-fall {
+  to {
+    transform: translate(var(--drift), 110vh) rotate(720deg);
+  }
+}
+.celebration .strip {
+  position: relative;
+  max-height: 100%;
+  overflow: auto;
+  padding: 18px max(16px, var(--safe-r)) 18px max(16px, var(--safe-l));
+  background: rgba(24, 20, 37, 0.9);
+  border-block: var(--px) solid var(--amber);
+  box-shadow: 0 0 0 var(--px) var(--night);
+  color: var(--cream);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: celebration-in 0.45s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes celebration-in {
+  from {
+    transform: scaleY(0);
+  }
+}
+.celebration .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 28px;
+}
+.celebration .kicker {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: clamp(18px, 3vw, 28px);
+  color: var(--lemon);
+}
+.celebration .version {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: clamp(40px, 8vw, 88px);
+  line-height: 1;
+  color: var(--amber);
+  text-shadow:
+    4px 4px 0 var(--wine),
+    0 0 24px rgba(254, 174, 52, 0.5);
+}
+.celebration ul {
+  width: min(640px, 100%);
+  margin: 14px auto 0;
+  padding: 0;
+  list-style: none;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.celebration li {
+  padding: 5px 0 5px 18px;
+  position: relative;
+}
+.celebration li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 12px;
+  width: 6px;
+  height: 6px;
+  background: var(--amber);
+}
+.celebration code {
+  font-size: 0.9em;
+  color: var(--cyan);
+}
+.celebration .go {
+  padding: 10px 22px;
+}
+body.kiosk .celebration .kicker {
+  font-size: 36px;
+}
+body.kiosk .celebration .version {
+  font-size: 120px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .celebration .strip {
+    animation: none;
+  }
+  .celebration .confetti {
+    display: none;
+  }
+}
+
+/* look studio: describe your look, the server's AI draws it */
+.look-studio .look-describe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.look-studio .describe-label {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--grey);
+  text-transform: uppercase;
+}
+.look-studio .look-describe textarea,
+.look-studio .look-change textarea {
+  width: 100%;
+  min-height: 72px;
+  max-height: 30vh;
+  resize: vertical;
+  box-sizing: border-box;
+  font: inherit;
+  /* 16px: iOS Safari zooms the page into smaller fields */
+  font-size: 16px;
+  padding: 6px 8px;
+  background: var(--cream);
+  color: var(--night);
+  border: 2px solid var(--night);
+}
+.look-studio .describe-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.look-studio .describe-hint {
+  flex: 1;
+  font-size: 12px;
+  color: var(--grey);
+}
+.look-studio .describe-go {
+  flex: none;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.look-studio .describe-go:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+@media (max-width: 760px) {
+  .look-studio .look-describe textarea,
+  .look-studio .look-change textarea {
+    min-height: 56px;
+  }
+}
+
+/* ---- Me chip + Me menu (top right): who this browser is ---------------------------------- */
+.hud-top .me-chip {
+  flex: none;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  min-width: 36px;
+  margin-right: -6px;
+  padding: 2px 6px;
+  background: none;
+  border: 0;
+  color: var(--cream);
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hud-top .me-chip:hover,
+.hud-top .me-chip[aria-expanded="true"] {
+  background: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--dusk);
+}
+.hud-top .me-chip:focus-visible {
+  outline: 2px solid var(--lemon);
+}
+.hud-top .me-chip:not(.confirmed) {
+  color: var(--amber);
+}
+.hud-top .me-chip .me-name {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-top .me-chip .me-q {
+  width: 16px;
+  text-align: center;
+  font-size: 14px;
+}
+.hud-top .portrait-mini,
+.me-menu .portrait-mini {
+  flex: none;
+  width: 16px;
+  height: 24px;
+  image-rendering: pixelated;
+  background: var(--ink);
+}
+.me-menu {
+  position: absolute;
+  top: calc(40px + var(--safe-t));
+  right: max(8px, var(--safe-r));
+  z-index: 8;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  width: 250px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 56px - var(--safe-t) - var(--safe-b));
+  overflow-y: auto;
+  color: var(--cream);
+  font-size: 13px;
+}
+.me-menu.show {
+  display: flex;
+}
+.me-menu .me-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  color: var(--amber);
+}
+.me-menu .me-head .dim {
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+.me-menu .me-title {
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  color: var(--amber);
+}
+.me-menu .me-note {
+  font-size: 12px;
+  color: var(--silver);
+}
+.me-menu .me-note.ok {
+  color: var(--leaf);
+}
+.me-menu .me-people {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.me-menu .me-people .pixel-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+:is(.me-menu, .look-callout) .claim-send:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+:is(.me-menu, .look-callout) .claim-row .pixel-btn {
+  width: auto;
+}
+:is(.me-menu, .look-callout) .claim-row input[aria-invalid="true"] {
+  outline: 2px solid var(--red);
+}
+:is(.me-menu, .look-callout) .claim-help {
+  font-size: 12px;
+  color: var(--silver);
+}
+:is(.me-menu, .look-callout) .claim-help summary {
+  cursor: pointer;
+  color: var(--grey);
+  text-decoration: underline;
+}
+.hud-panel .poke-from[hidden] {
+  display: none;
+}
+.me-menu .poke-status {
+  min-height: 0;
+  font-size: 12px;
+  color: var(--silver);
+}
+.me-menu .poke-status:empty {
+  display: none;
+}
+.me-menu .poke-status.ok {
+  color: var(--leaf);
+}
+.me-menu .poke-status.err {
+  color: var(--pink);
+}
+body.nohud .me-menu {
+  display: none;
+}
+@media (max-width: 560px) {
+  /* the chip takes the clock's place (the phone shows the time itself) and loses its label */
+  .hud-top.with-me .clock,
+  .hud-top .me-chip .me-name {
+    display: none;
+  }
+  .hud-top .me-chip {
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-right: -4px;
+    padding: 0;
+  }
+  /* a sheet at the bottom, in reach of the thumb */
+  .me-menu {
+    top: auto;
+    left: max(10px, var(--safe-l));
+    right: max(10px, var(--safe-r));
+    bottom: max(10px, var(--safe-b));
+    width: auto;
+    max-height: 70%;
+    /* above the "Office games" button in the same corner */
+    z-index: 35;
+  }
+  .me-menu .pixel-btn {
+    min-height: 44px;
   }
 }

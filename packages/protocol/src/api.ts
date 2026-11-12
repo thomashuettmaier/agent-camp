@@ -4,9 +4,151 @@
  *   GET  /api/snapshots        -> SnapshotList
  *   GET  /api/people/:personId -> PersonDayResponse
  *   POST /api/history/backfill <- HistoryRow[]   (Bearer CONNECTOR_PASSWORD)
+ *   POST /api/interact         <- InteractRequest -> InteractResponse
+ *   PUT  /api/people/:personId/avatar <- AvatarEditRequest -> AvatarEditResponse
+ *   POST /api/people/:personId/look   <- LookDescribeRequest -> LookDescribeResponse
+ *   PUT  /api/people/:personId/gif    <- SetGifRequest -> SetGifResponse
+ * Errors are `ApiError` bodies.
  */
 import { z } from "zod";
-import { Activity, AgentKind } from "./messages.ts";
+import { AvatarSpec } from "./catalog.ts";
+import { MAX_SELF_DESCRIPTION } from "./constants.ts";
+import { GiphyId } from "./giphy.ts";
+import {
+  Activity,
+  AgentKind,
+  CatId,
+  InteractionKind,
+  InteractionText,
+  isCatInteraction,
+  LookGenerated,
+  LookGenerator,
+  needsSpot,
+  PersonId,
+  ViewerName,
+  WorldCoord,
+} from "./messages.ts";
+
+/** A viewer pokes a person, throws a paper ball, or plays with the office cats. */
+export const InteractRequest = z
+  .object({
+    kind: InteractionKind,
+    personId: PersonId.optional(),
+    from: ViewerName.optional(),
+    text: InteractionText.optional(),
+    catId: CatId.optional(),
+    x: WorldCoord.optional(),
+    y: WorldCoord.optional(),
+  })
+  .refine((r) => isCatInteraction(r.kind) || !!r.personId, { message: "personId required" })
+  .refine((r) => r.kind !== "message" || !!r.text, { message: "text required" })
+  .refine((r) => !needsSpot(r.kind) || (r.x !== undefined && r.y !== undefined), {
+    message: "x and y required",
+  });
+export type InteractRequest = z.infer<typeof InteractRequest>;
+
+export const InteractResponse = z.object({ ok: z.boolean(), delivered: z.number() });
+export type InteractResponse = z.infer<typeof InteractResponse>;
+
+/**
+ * A viewer picks a person's look in the look editor (catalog ids only). `avatar: null` drops
+ * the custom look and goes back to the automatic one (description / seed).
+ */
+export const AvatarEditRequest = z.object({
+  avatar: AvatarSpec.nullable(),
+  from: ViewerName.optional(),
+});
+export type AvatarEditRequest = z.infer<typeof AvatarEditRequest>;
+
+/**
+ * Whether a Generate from this browser can go to the person's own Mac, and if not, why:
+ * ready = the Mac this browser proved is live and has a local AI; reconfirm = a Mac of theirs
+ * with a local AI is live, but not the one this browser proved (it reconnected since "This is
+ * me", or the browser never proved one): a new code fixes it; enable = their live Macs have no
+ * local AI (look_generator off or Claude Code not found); offline = no Mac of theirs is live.
+ */
+export const LookMacState = z.enum(["ready", "reconfirm", "enable", "offline"]);
+export type LookMacState = z.infer<typeof LookMacState>;
+
+/** How the newest studio Generate drawn on a Mac ended (by = who drew the look). */
+export const GenerateOutcome = z.object({
+  result: LookGenerated.shape.data.shape.result,
+  by: LookGenerated.shape.data.shape.by,
+  /** why the Mac did not draw it (its error, no answer, reconnected meanwhile) */
+  macError: z.string().max(300).optional(),
+});
+export type GenerateOutcome = z.infer<typeof GenerateOutcome>;
+
+export const AvatarEditResponse = z.object({
+  ok: z.boolean(),
+  /** the look now shown (for a reset: the current one until the new automatic look lands) */
+  avatar: AvatarSpec,
+  custom: z.boolean(),
+  /** whether a description can become a look (a local AI on their Mac or GENUI_PROVIDER) */
+  aiLooks: z.boolean().optional(),
+  /** whether the office server itself draws looks (GENUI_PROVIDER is set) */
+  serverLooks: z.boolean().optional(),
+  /** local AI tools on this person's live Macs that draw looks on their own subscription */
+  localLooks: z.array(LookGenerator).optional(),
+  /** the person's look description; only sent to that person's own browser */
+  description: z.string().optional(),
+  /** own browser only: can its Generate go to their Mac (see LookMacState) */
+  mac: LookMacState.optional(),
+  /** own browser only: how the newest Generate sent to their Mac ended (absent while drawing) */
+  lastGenerate: GenerateOutcome.optional(),
+});
+export type AvatarEditResponse = z.infer<typeof AvatarEditResponse>;
+
+/**
+ * The owner describes their look in the look studio (same text a connector sends as its look
+ * description). It becomes the person's description and the server's GenUI makes a new look.
+ * Refused with 429 `{error}` (nothing changes) while their last Generate is still being drawn,
+ * within 20 s of it, or once they used their daily Generates on the server's AI (5 by default;
+ * looks drawn on their own Mac do not count).
+ */
+export const LookDescribeRequest = z.object({
+  description: z.string().trim().min(1).max(MAX_SELF_DESCRIPTION),
+  /**
+   * "Change by prompt" (WD10): `description` is a change to the look worn now ("make the
+   * jacket red"), not a new description; the result is pinned as a custom look.
+   */
+  change: z.boolean().optional(),
+});
+export type LookDescribeRequest = z.infer<typeof LookDescribeRequest>;
+
+export const LookDescribeResponse = z.object({
+  ok: z.boolean(),
+  /** the look now shown */
+  avatar: AvatarSpec,
+  /**
+   * ai = a new look from the description; off = this server has no AI looks (the description
+   * is saved and used once they are turned on); failed = error, refusal, unusable answer,
+   * daily cap or the person's daily limit (the previous look stays, the next join retries);
+   * pending = the person's own Mac is drawing it (`generator`), the new look arrives as
+   * avatar.updated; superseded = the AI drew it, but the look changed meanwhile (a newer
+   * Generate, a new description or a look picked in the editor), so that one stays
+   */
+  result: z.enum(["ai", "off", "failed", "pending", "superseded"]),
+  generator: LookGenerator.optional(),
+  /** when the Mac did not take it: why (see LookMacState), so the studio can say how to fix it */
+  mac: LookMacState.optional(),
+});
+export type LookDescribeResponse = z.infer<typeof LookDescribeResponse>;
+
+/** Error body of a failed API request. */
+export const ApiError = z.object({ error: z.string() });
+export type ApiError = z.infer<typeof ApiError>;
+
+/**
+ * Set or remove the GIF over a person's head from the web UI. `link` is anything
+ * `parseGiphyId` accepts (Giphy page/media link or bare id); null or "" removes the GIF.
+ */
+export const SetGifRequest = z.object({ link: z.string().max(2000).nullable() });
+export type SetGifRequest = z.infer<typeof SetGifRequest>;
+
+/** The person's GIF after the change; null = none. */
+export const SetGifResponse = z.object({ personId: z.string(), gif: GiphyId.nullable() });
+export type SetGifResponse = z.infer<typeof SetGifResponse>;
 
 /** One stored history row (one per viewer event, except activity changes). No content. */
 export const HistoryRow = z.object({
@@ -45,6 +187,14 @@ export const StatsResponse = z.object({
   }),
   /** personId -> latest display name seen (best effort) */
   names: z.record(z.string(), z.string()),
+  /** wall of shame, today in the office time zone (top 5 each; waits in ms) */
+  shame: z
+    .object({
+      clears: z.array(LeaderboardEntry),
+      waits: z.array(LeaderboardEntry),
+      fires: z.array(LeaderboardEntry),
+    })
+    .optional(),
 });
 export type StatsResponse = z.infer<typeof StatsResponse>;
 

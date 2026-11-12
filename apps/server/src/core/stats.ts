@@ -70,7 +70,13 @@ export function computeStats(rows: readonly HistoryRow[], opts: StatsOptions): S
   const sessions = new Map<string, number>();
   const subagents = new Map<string, number>();
   const projects = new Map<string, number>();
-  const agentSplit: Record<string, number> = { claude: 0, codex: 0, pi: 0, unknown: 0 };
+  const agentSplit: Record<string, number> = {
+    claude: 0,
+    codex: 0,
+    pi: 0,
+    design: 0,
+    unknown: 0,
+  };
   const running = new Map<string, number>();
   const parallel = new Map<string, number>();
   let totalSessions = 0;
@@ -222,6 +228,51 @@ export function computePersonDay(
     subagentsToday,
     recentActivity: opts.recentActivity ?? {},
   };
+}
+
+export type OfficeDay = { started: number; peak: number; recent: number[] };
+
+/** Whole office today: sessions started, most running at once, and a recent 5-min sampling. */
+export function computeOfficeDay(
+  rows: readonly HistoryRow[],
+  opts: { timezone: string; now: number; liveSessions: number },
+): OfficeDay {
+  const dayStart = startOfDayIn(opts.timezone, opts.now);
+  const STEP = 5 * 60_000;
+  const marks = Array.from({ length: 8 }, (_, i) => opts.now - (7 - i) * STEP);
+  const recent: number[] = [];
+  const running = new Map<string, number>();
+  let total = 0;
+  let started = 0;
+  let peak = opts.liveSessions;
+  const sorted = [...rows].sort((a, b) => a.ts - b.ts);
+  let m = 0;
+  const sampleUntil = (ts: number) => {
+    while (m < marks.length && marks[m]! < ts) {
+      recent.push(total);
+      m++;
+    }
+  };
+  for (const r of sorted) {
+    if (r.ts > opts.now) break;
+    sampleUntil(r.ts);
+    const before = running.get(r.person) ?? 0;
+    let after = before;
+    if (r.type === "session.started") after = before + 1;
+    else if (r.type === "session.ended") after = Math.max(0, before - 1);
+    else if (r.type === "person.left") after = 0;
+    else continue;
+    running.set(r.person, after);
+    total += after - before;
+    if (r.type === "session.started" && r.ts >= dayStart) {
+      started++;
+      peak = Math.max(peak, total);
+    }
+  }
+  sampleUntil(Number.POSITIVE_INFINITY);
+  // the last mark is "now": what is live beats what history reconstructs
+  recent[recent.length - 1] = opts.liveSessions;
+  return { started, peak, recent };
 }
 
 const CSV_COLUMNS = ["ts", "iso", "type", "person", "agent", "project", "subagents"] as const;
